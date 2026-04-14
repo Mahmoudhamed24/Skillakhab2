@@ -5395,6 +5395,13 @@ footer .logo {
 .report-meta .rm strong {
   font-size: 1rem;
   color: var(--ink);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.dtbl td {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* Support chat / pinned item */
