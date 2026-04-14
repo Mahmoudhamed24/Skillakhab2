@@ -965,10 +965,13 @@
           <div class="avupld">
             <div class="avprev" id="editAvPr">أ</div>
             <div style="flex:1">
-              <label>رابط أو صورة الملف</label><input type="url" id="editPh"
-                placeholder="https://..." oninput="prvEditAv()" />
-              <div class="fh">يمكنك وضع رابط صورة أو رفع صورة من الجهاز ثم قصّها.</div>
-              <input type="file" id="editImg" accept="image/*" style="margin-top:8px" />
+              <label>صورة الملف الشخصي</label>
+              <div class="photo-uploader photo-uploader-lg" onclick="document.getElementById('editImg').click()">
+                <div class="photo-uploader-ic">🖼️</div>
+                <div class="photo-uploader-t">اضغط لتحديث الصورة</div>
+                <div class="photo-uploader-s">تحريك، قص، ومعاينة قبل الحفظ</div>
+              </div>
+              <input type="file" id="editImg" accept="image/*" hidden />
               <div id="editPhotoPreview" class="photo-preview hidden" style="margin-top:10px"></div>
             </div>
           </div>
@@ -1013,9 +1016,8 @@
               </div>
             </div>
           </div>
-          <div style="display:flex;gap:10px;margin-top:4px;flex-wrap:wrap">
+          <div style="display:flex;gap:10px;margin-top:4px">
             <button class="btn btn-p" onclick="savePrf()">💾 حفظ التغييرات</button>
-            <button class="btn btn-d" onclick="deleteMyAccount()">🗑️ حذف الحساب</button>
             <button class="btn btn-gh" onclick="go('dashboard')">إلغاء</button>
           </div>
         </div>
@@ -1123,8 +1125,13 @@
           </div>
           <div class="fg"><label>رقم الهاتف المحلي <span class="req">*</span></label><input type="tel" id="r2Ph"
               placeholder="01xxxxxxxxx" style="direction:ltr;text-align:right" /></div>
-          <div class="fg"><label>صورة الملف الشخصي (اختياري)</label><input type="file" id="r2Img" accept="image/*" />
-            <div class="fh">يمكنك رفع صورة من جهازك ثم قصّها قبل الحفظ.</div>
+          <div class="fg"><label>صورة الملف الشخصي (اختياري)</label>
+            <div class="photo-uploader" onclick="document.getElementById('r2Img').click()">
+              <div class="photo-uploader-ic">📷</div>
+              <div class="photo-uploader-t">اضغط لرفع صورة شخصية</div>
+              <div class="photo-uploader-s">سيتم فتح القص والمعاينة قبل الحفظ</div>
+            </div>
+            <input type="file" id="r2Img" accept="image/*" hidden />
             <div id="r2PhotoPreview" class="photo-preview hidden"></div>
           </div>
           <div class="fg"><label>كلمة المرور <span class="req">*</span></label><input type="password" id="r2P"
@@ -1308,52 +1315,48 @@
   </div>
 
   <div class="toastc">
-    
-  <!-- ═══════════════ IMAGE CROP MODAL ═══════════════ -->
+    <!-- ═══════════════ IMAGE CROP MODAL ═══════════════ -->
   <div id="cropMod" class="mov hidden" onclick="closeBg(event,'cropMod')">
     <div class="modal crop-modal">
       <button class="mc" onclick="closeM('cropMod')">✕</button>
       <div class="mi crop-shell">
         <div class="crop-head">
           <div>
-            <h2 class="mtitle">تعديل الصورة</h2>
-            <p class="msub">اسحب، كبّر، ودوّر الصورة قبل الحفظ. المعاينة تظهر مباشرة بشكل واضح على جميع الشاشات.</p>
+            <h2 class="mtitle">قص الصورة</h2>
+            <p class="msub">عاين النتيجة النهائية قبل الحفظ، مع دعم أفضل لكل الشاشات.</p>
           </div>
-          <span class="pill pc" id="cropModeLbl">1:1</span>
+          <span class="pill pc">1:1</span>
         </div>
 
-        <div class="crop-editor">
-          <div class="crop-stage-wrap">
-            <div class="crop-stage" id="cropStage">
-              <canvas id="cropCanvas" width="720" height="720"></canvas>
-              <div class="crop-frame"></div>
-              <div class="crop-hint">اسحب الصورة للتحريك</div>
-            </div>
-          </div>
-
-          <div class="crop-side">
-            <div class="crop-side-title">المعاينة قبل الحفظ</div>
-            <div class="crop-preview-box">
-              <canvas id="cropPreviewCanvas" width="320" height="320"></canvas>
-            </div>
-            <div class="crop-controls">
-              <button class="btn btn-gh btn-sm" onclick="rotateCrop(-90)">↺ تدوير</button>
-              <button class="btn btn-gh btn-sm" onclick="rotateCrop(90)">↻ تدوير</button>
-              <button class="btn btn-o btn-sm" onclick="resetCrop()">إعادة ضبط</button>
+        <div class="crop-grid">
+          <div class="crop-main">
+            <div class="crop-area">
+              <img id="cropImage" alt="Crop preview" />
             </div>
             <div class="crop-zoom">
               <button class="btn btn-gh btn-sm" onclick="setCropZoom(-0.08)">−</button>
               <input type="range" id="cropZoomRange" min="0.8" max="3" step="0.01" value="1" oninput="setCropZoom(this.value)">
               <button class="btn btn-gh btn-sm" onclick="setCropZoom(0.08)">+</button>
             </div>
-            <p class="crop-tip">هذه الأداة تعمل باللمس أو بالماوس، وتناسب الهاتف والكمبيوتر قبل حفظ صورة الملف الشخصي أو التسجيل.</p>
+          </div>
+
+          <div class="crop-side">
+            <div class="crop-preview-card">
+              <div class="crop-preview-title">المعاينة النهائية</div>
+              <div class="crop-preview-frame">
+                <img id="cropPreviewImg" alt="Preview" />
+              </div>
+            </div>
+            <div class="crop-actions">
+              <button class="btn btn-gh" onclick="rotateCrop(-90)">↺ تدوير</button>
+              <button class="btn btn-gh" onclick="rotateCrop(90)">↻ تدوير</button>
+              <button class="btn btn-o" onclick="resetCrop()">إعادة ضبط</button>
+              <button class="btn btn-p" onclick="applyCrop()">حفظ الصورة</button>
+            </div>
           </div>
         </div>
 
-        <div class="crop-actions">
-          <button class="btn btn-gh" onclick="closeM('cropMod')">إلغاء</button>
-          <button class="btn btn-p" onclick="applyCrop()">حفظ الصورة</button>
-        </div>
+        <p class="crop-tip">يمكنك التحريك والتكبير والتصغير قبل الحفظ، والصورة النهائية ستظهر مباشرة في البروفيل.</p>
       </div>
     </div>
   </div>

@@ -47,6 +47,52 @@
     const AFG = ['#78350f', '#065f46', '#4c1d95', '#166534', '#9f1239', '#78350f', '#064e3b', '#4c1d95', '#075985', '#9f1239'];
     const CATCOL = { 'برمجة': '#0ea5e9', 'تصميم': '#a855f7', 'لغات': '#10b981', 'Excel': '#f59e0b', 'تسويق': '#ef4444', 'مونتاج': '#f97316', 'مهارات وظيفية': '#6366f1', 'موسيقى': '#ec4899' };
     const RTC = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:stun2.l.google.com:19302' }] };
+
+    const SPECIALTIES = ["برمجة وتطوير الويب", "تطوير التطبيقات", "الذكاء الاصطناعي", "علوم البيانات", "الأمن السيبراني", "الشبكات", "قواعد البيانات", "التصميم الجرافيكي", "UI/UX", "الموشن جرافيك", "الأنيميشن", "التصوير الفوتوغرافي", "المونتاج", "الإنتاج المرئي", "اللغة العربية", "اللغة الإنجليزية", "اللغة الفرنسية", "اللغة الألمانية", "اللغة الإسبانية", "اللغة التركية", "اللغة الإيطالية", "اللغة الصينية", "اللغة اليابانية", "الرياضيات", "الفيزياء", "الكيمياء", "الأحياء", "العلوم", "اللغة الإنجليزية للمحادثة", "المحاسبة", "المالية", "الاقتصاد", "إدارة الأعمال", "التسويق الرقمي", "المبيعات", "ريادة الأعمال", "Excel", "Power BI", "تحليل البيانات", "إدارة المشاريع", "الموارد البشرية", "السيرة الذاتية والمقابلات", "القرآن الكريم", "التجويد", "الفقه", "الحديث", "الدراسات الإسلامية", "الطب", "التمريض", "الصيدلة", "العلوم الصحية", "البرمجة التعليمية للأطفال", "الموسيقى", "العزف", "الرسم"];
+    function specialtiesOptionsHTML() {
+      return SPECIALTIES.map(s => `<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`).join('');
+    }
+    function populateSpecialties() {
+      ['editCat', 'r3Cat'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = specialtiesOptionsHTML();
+      });
+    }
+    function getCommissionRates() {
+      return {
+        student: Number(platformStudentCommission || 0),
+        tutor: Number(platformTutorCommission || 0),
+      };
+    }
+    function calcBookingFees(price) {
+      const p = Number(price || 0);
+      const rates = getCommissionRates();
+      const studentFee = +(p * (rates.student / 100)).toFixed(2);
+      const tutorFee = +(p * (rates.tutor / 100)).toFixed(2);
+      const totalFee = +(studentFee + tutorFee).toFixed(2);
+      const total = +(p + studentFee).toFixed(2);
+      const tutorNet = +(p - tutorFee).toFixed(2);
+      return { price: p, studentFee, tutorFee, totalFee, total, tutorNet };
+    }
+    function bookingPlatformProfit(b) {
+      return Number((b?.studentFee ?? b?.fee ?? 0)) + Number(b?.tutorFee ?? 0);
+    }
+    async function openSupportConversation() {
+      await resolveSupportAdminUid();
+      if (!supportAdminUid) {
+        showT('خدمة العملاء غير متاحة الآن', 'err');
+        return;
+      }
+      if (typeof openChatWith === 'function') {
+        const contact = allContacts[supportAdminUid] || { uid: supportAdminUid, name: 'خدمة العملاء', photo: '', emoji: '🛟' };
+        openChatWith(contact.uid, contact.name || 'خدمة العملاء', contact.photo || '', contact.color || '', contact.fgColor || '', contact.emoji || '🛟');
+        setTimeout(() => {
+          const chatPage = document.getElementById('page-chat');
+          if (chatPage) go('chat');
+        }, 60);
+      }
+    }
+
     function escapeHTML(v = '') {
       return String(v)
         .replace(/&/g, '&amp;')
@@ -62,7 +108,7 @@
     }
 
     async function getLatestPairBooking(otherUid) {
-      if (!isSignedIn() || !otherUid) return null;
+      if (!CU || !otherUid) return null;
       try {
         const [s1, s2] = await Promise.all([
           db.collection('bookings').where('studentId', '==', CU.uid).get().catch(() => ({ docs: [] })),
@@ -97,7 +143,7 @@
     }
 
     function canBookTarget(targetId) {
-      if (!isSignedIn() || !CP || !targetId) return false;
+      if (!CU || !CP || !targetId) return false;
       if (CU.uid === targetId) return false;
       // Only learner/both/admin accounts may book. Tutor-only accounts cannot.
       if (CP.role === 'tutor') return false;
@@ -146,13 +192,6 @@
 
     /* ── APP STATE ── */
     let CU = null, CP = null, walBal = 0;
-function syncAuthUser() {
-  if (!CU && auth && auth.currentUser) CU = auth.currentUser;
-  return CU || (auth ? auth.currentUser : null);
-}
-function isSignedIn() {
-  return !!(CU || (auth && auth.currentUser));
-}
     let allT = [], curT = null, selDate = null, selTime = null;
     let regRole = 'learner', r3SkList = [], regStep = 1;
     let edSkList = [];
@@ -202,9 +241,8 @@ function isSignedIn() {
     }, 3000);
 
     /* ── AUTH LISTENER ── */
-    CU = auth.currentUser || null;
     auth.onAuthStateChanged(async user => {
-      CU = user || auth.currentUser || null;
+      CU = user;
       if (user) {
         try {
           const s = await db.collection('users').doc(user.uid).get();
@@ -222,10 +260,6 @@ function isSignedIn() {
             await db.collection('wallets').doc(user.uid).set({ balance: 0, userId: user.uid });
             updNavU();
             startMsgL();
-          }
-          if (sessionStorage.getItem('skillak_post_auth_route') === 'dashboard') {
-            sessionStorage.removeItem('skillak_post_auth_route');
-            setTimeout(() => go('dashboard'), 120);
           }
         } catch (e) { console.error('auth state:', e); }
       } else {
@@ -284,7 +318,7 @@ function isSignedIn() {
     /* ── MSG BADGE LISTENER ── */
     let bookingNotifL = null;
     function startMsgL() {
-      if (!isSignedIn() || msgUnsubL) return;
+      if (!CU || msgUnsubL) return;
       // Unread messages badge
       msgUnsubL = db.collection('messages')
         .where('receiverId', '==', CU.uid)
@@ -504,8 +538,8 @@ function isSignedIn() {
     <div class="profsec"><h3>تقييمات الطلاب (${t.totalReviews || 0})</h3>${revHTML}</div>
   `;
 
-      const mustLogin = !isSignedIn();
-      const canChat = isSignedIn() && CU.uid !== id;
+      const mustLogin = !CU;
+      const canChat = CU && CU.uid !== id;
       const safeId = id.replace(/'/g, "\\'");
       const safeName = (t.name || '').replace(/'/g, "\\'");
       const safeEmoji = (t.emoji || t.name?.[0] || '؟').replace(/'/g, "\\'");
@@ -574,15 +608,15 @@ function isSignedIn() {
     }
 
     function openBkMod() {
-      if (!isSignedIn()) { openM('loginMod'); return; }
+      if (!CU) { openM('loginMod'); return; }
       if (!selDate) { showT('اختر تاريخاً أولاً', 'err'); return; }
       if (!selTime) { showT('اختر وقت الجلسة', 'err'); return; }
-      const t = curT, fee = +(t.price * (platformCommission / 100)).toFixed(2), tot = t.price + fee;
+      const t = curT, fees = calcBookingFees(t.price), fee = fees.studentFee, tutorFee = fees.tutorFee, tot = fees.total;
       document.getElementById('bkTch').textContent = t.name;
       document.getElementById('bkDt').textContent = selDate;
       document.getElementById('bkTm').textContent = timeLbl(selTime) || selTime;
       document.getElementById('bkPrc').textContent = t.price + ' ج.م';
-      document.getElementById('bkFee').textContent = fee.toFixed(2) + ' ج.م';
+      document.getElementById('bkFee').textContent = `طالب ${fee.toFixed(2)} ج.م + معلم ${tutorFee.toFixed(2)} ج.م`;
       document.getElementById('bkTot').textContent = tot.toFixed(2) + ' ج.م';
       document.getElementById('bkBal').textContent = walBal.toFixed(2) + ' ج.م';
       const ins = walBal < tot;
@@ -592,7 +626,7 @@ function isSignedIn() {
     }
 
     async function confirmBk() {
-      if (!isSignedIn() || !curT) return;
+      if (!CU || !curT) return;
       const t = curT;
       const noteEl = document.getElementById('bkNote');
       const btn = document.getElementById('bkBtn');
@@ -600,7 +634,7 @@ function isSignedIn() {
       if (!selTime) { showT('اختر وقت الجلسة أولاً', 'err'); return; }
       if (!canBookTarget(t.id)) { showT('لا يمكنك الحجز مع نفسك أو كمعلّم فقط', 'err'); closeM('bkMod'); return; }
       if (btn) { btn.textContent = 'جاري الحجز...'; btn.disabled = true; }
-      const fee = +(t.price * (platformCommission / 100)).toFixed(2), tot = t.price + fee;
+      const fees = calcBookingFees(t.price), fee = fees.studentFee, tutorFee = fees.tutorFee, tot = fees.total;
       try {
         // Hold money from student wallet immediately
         await db.runTransaction(async tx => {
@@ -615,7 +649,7 @@ function isSignedIn() {
           studentPhone: CP?.phone || '',
           tutorId: t.id, tutorName: t.name,
           date: selDate, time: selTime, timeLbl: timeLbl(selTime), duration: 60,
-          price: t.price, fee, total: tot,
+          price: t.price, fee, tutorFee, studentCommissionRate: platformStudentCommission, tutorCommissionRate: platformTutorCommission, totalFee: fee + tutorFee, total: tot,
           note: noteEl?.value || '',
           status: 'pending',
           reviewed: false, paymentStatus: 'held',
@@ -701,7 +735,7 @@ function isSignedIn() {
 
     /* ── WALLET ── */
     async function loadWal() {
-      if (!isSignedIn()) return;
+      if (!CU) return;
       try {
         const s = await db.collection('wallets').doc(CU.uid).get();
         walBal = s.exists ? (s.data().balance || 0) : 0;
@@ -773,7 +807,7 @@ function isSignedIn() {
     }
 
     async function submitPayment() {
-      if (!isSignedIn()) { openM('loginMod'); return; }
+      if (!CU) { openM('loginMod'); return; }
       if (!paySelectedAmt || paySelectedAmt < 20) { showT('الحد الأدنى للشحن 20 جنيه', 'err'); return; }
 
       const refInput = document.getElementById(`ref-${activePayTab}`);
@@ -838,7 +872,7 @@ function isSignedIn() {
     // Old submitWithdrawal replaced by new version in buildWithdrawPage
 
     async function loadWdHistory() {
-      const el = document.getElementById('wdHistory'); if (!el || !isSignedIn()) return;
+      const el = document.getElementById('wdHistory'); if (!el || !CU) return;
       const snap = await db.collection('withdrawalRequests').where('userId', '==', CU.uid).get().catch(() => ({ docs: [] }));
       const docs = [...snap.docs].map(d => ({ id: d.id, ...d.data() }))
         .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
@@ -866,7 +900,7 @@ function isSignedIn() {
     }
 
     async function loadTxList() {
-      const el = document.getElementById('txList'); if (!el || !isSignedIn()) return;
+      const el = document.getElementById('txList'); if (!el || !CU) return;
       el.innerHTML = '<div style="padding:28px;text-align:center"><div class="spin" style="margin:0 auto"></div></div>';
       const ws = await db.collection('wallets').doc(CU.uid).get().catch(() => null);
       if (ws?.exists) {
@@ -947,20 +981,20 @@ function isSignedIn() {
 
     /* ── WHATSAPP CHAT ── */
     function openChatWith(uid, name, photo, color, fgColor, emoji) {
-      if (!isSignedIn()) { openM('loginMod'); return; }
+      if (!CU) { openM('loginMod'); return; }
       allContacts[uid] = { uid, name, photo: photo || '', color: color || '', fgColor: fgColor || '', emoji: emoji || name?.[0] || '؟' };
       go('chat');
       setTimeout(() => openConv(uid), 150);
     }
 
     async function loadChatPage() {
-      if (!isSignedIn()) return;
+      if (!CU) return;
       await loadContacts();
       if (curChatUid && allContacts[curChatUid]) await openConv(curChatUid);
     }
 
     async function loadContacts() {
-      if (!isSignedIn()) return;
+      if (!CU) return;
       const uid = CU.uid;
       try {
         const [s1, s2] = await Promise.all([
@@ -1115,7 +1149,7 @@ function isSignedIn() {
     async function sendMsg() {
       const inp = document.getElementById('chatInp');
       const text = inp.value.trim();
-      if (!text || !curChatUid || !isSignedIn()) return;
+      if (!text || !curChatUid || !CU) return;
       const rel = await refreshChatState(curChatUid);
       if (!rel.chatAllowed) {
         showT('الشات يعمل بعد تأكيد الجلسة فقط', 'err');
@@ -1618,20 +1652,23 @@ function isSignedIn() {
         db.collection('bookings').where('tutorId', '==', uid).get().catch(() => ({ docs: [] }))
       ]);
       const compT = tb.docs.filter(d => d.data().status === 'completed');
-      const earnings = compT.reduce((s, d) => s + ((d.data().price || 0) - (d.data().fee || 0)), 0);
-      const upcoming = sb.docs.filter(d => ['pending', 'confirmed'].includes(d.data().status)).length;
+      const tutorEarnings = compT.reduce((s, d) => s + ((d.data().price || 0) - Number(d.data().tutorFee || d.data().fee || 0)), 0);
+      const studentUpcoming = sb.docs.filter(d => ['pending', 'confirmed'].includes(d.data().status)).length;
+      const tutorUpcoming = tb.docs.filter(d => ['pending', 'confirmed'].includes(d.data().status)).length;
+      const mySessionsCount = isTutor ? tb.docs.length : sb.docs.length;
+      const upcoming = isTutor ? tutorUpcoming : studentUpcoming;
       const all = [...sb.docs, ...tb.docs].map(d => ({ id: d.id, ...d.data() })).filter((b, i, a) => a.findIndex(x => x.id === b.id) === i).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)).slice(0, 10);
 
       el.innerHTML = `
     <div class="dashphdr">
       <div><div style="font-size:.72rem;font-weight:800;letter-spacing:.1em;color:var(--amber);margin-bottom:3px">لوحة التحكم</div><div class="dashph">مرحباً، ${p.name?.split(' ')[0] || 'أهلاً'} 👋</div></div>
-      <button class="btn btn-p" onclick="go('explore')">+ احجز جلسة جديدة</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-p" onclick="go('explore')">+ احجز جلسة جديدة</button><button class="btn btn-o" onclick="openSupportConversation()">🛟 خدمة العملاء</button></div>
     </div>
     <div class="srow">
-      <div class="sc acc"><div class="scic">📅</div><div class="scval">${sb.docs.length}</div><div class="sclbl">جلساتي كطالب</div></div>
-      <div class="sc"><div class="scic">⏰</div><div class="scval">${upcoming}</div><div class="sclbl">جلسات قادمة</div></div>
+      <div class="sc acc"><div class="scic">📅</div><div class="scval">${mySessionsCount}</div><div class="sclbl">${isTutor ? 'جلساتي كمعلم' : 'جلساتي كطالب'}</div></div>
+      <div class="sc"><div class="scic">⏰</div><div class="scval">${upcoming}</div><div class="sclbl">${isTutor ? 'جلسات قادمة كمعلم' : 'جلسات قادمة'}</div></div>
       ${isTutor ? `
-      <div class="sc amb"><div class="scic">💰</div><div class="scval">$${earnings.toFixed(0)}</div><div class="sclbl">صافي أرباحي</div></div>
+      <div class="sc amb"><div class="scic">💰</div><div class="scval">$${tutorEarnings.toFixed(0)}</div><div class="sclbl">صافي أرباحي</div></div>
       <div class="sc"><div class="scic">⭐</div><div class="scval">${(p.rating || 0).toFixed(1) || '—'}</div><div class="sclbl">تقييمي كمعلم</div></div>
       ` : `
       <div class="sc"><div class="scic">💳</div><div class="scval" style="font-size:1.4rem">${walBal.toFixed(0)}<span style="font-size:.7rem;font-weight:600;opacity:.6"> ج.م</span></div><div class="sclbl">رصيد المحفظة</div></div>
@@ -1639,7 +1676,7 @@ function isSignedIn() {
       `}
     </div>
     ${isTutor ? `<div class="dsec" style="margin-bottom:18px"><div class="dsech"><div class="dsect">📊 ملفي كمعلم — ${(p.rating || 0).toFixed(1)} ⭐ · ${p.totalReviews || 0} تقييم</div><button class="btn btn-gh btn-sm" onclick="go('editProfile')">تعديل الملف</button></div><div style="padding:16px;display:flex;gap:18px;flex-wrap:wrap"><div class="expb"><span>💰</span><div><strong>$${p.price || 0}/ساعة</strong><div style="font-size:.7rem;color:var(--muted)">السعر</div></div></div><div class="expb"><span>🏆</span><div><strong>${p.experience || 0} سنة</strong><div style="font-size:.7rem;color:var(--muted)">خبرة</div></div></div><button class="btn btn-o btn-sm" onclick="dNav('availability')">⏰ إدارة الأوقات المتاحة</button></div></div>` : ''}
-    ${upcoming > 0 ? `<div class="dsec" style="margin-bottom:18px;border-color:var(--teal);"><div class="dsech" style="background:var(--teal3)"><div class="dsect" style="color:var(--teal)">⏰ جلساتك القادمة (${upcoming})</div><button class="btn btn-p btn-sm" onclick="dNav('sessions')">عرض الكل</button></div>${bkTblHTML(all.filter(b => ['pending', 'confirmed'].includes(b.status) && b.studentId === uid))}</div>` : ''}
+    ${upcoming > 0 ? `<div class="dsec" style="margin-bottom:18px;border-color:var(--teal);"><div class="dsech" style="background:var(--teal3)"><div class="dsect" style="color:var(--teal)">⏰ جلساتك القادمة (${upcoming})</div><button class="btn btn-p btn-sm" onclick="dNav('sessions')">عرض الكل</button></div>${bkTblHTML(all.filter(b => ['pending', 'confirmed'].includes(b.status) && (isTutor ? b.tutorId === uid : b.studentId === uid)))}</div>` : ''}
     <div class="dsec"><div class="dsech"><div class="dsect">آخر الجلسات</div><button class="btn btn-gh btn-sm" onclick="dNav('sessions')">عرض الكل</button></div>${bkTblHTML(all)}</div>
   `;
     }
@@ -1748,7 +1785,7 @@ function isSignedIn() {
     }
 
     async function submitWithdrawal() {
-      if (!isSignedIn()) { openM('loginMod'); return; }
+      if (!CU) { openM('loginMod'); return; }
 
       const { methodEl, amtEl, accountEl, nameEl } = getWdElements();
       const amt = parseFloat(amtEl?.value || 0);
@@ -1857,35 +1894,36 @@ function isSignedIn() {
       const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       const comp = all.filter(b => b.status === 'completed');
       const gross = comp.reduce((s, b) => s + (b.price || 0), 0);
-      const fees = comp.reduce((s, b) => s + (b.fee || 0), 0);
-      const net = gross - fees;
-      // Get wallet balance
+      const tutorFees = comp.reduce((s, b) => s + Number(b.tutorFee || b.fee || 0), 0);
+      const studentFees = comp.reduce((s, b) => s + Number(b.fee || 0), 0);
+      const net = gross - tutorFees;
       const ws = await db.collection('wallets').doc(CU.uid).get().catch(() => null);
       const walBalance = ws?.exists ? (ws.data().balance || 0) : 0;
-      // Get pending withdrawal
       const wdSnap = await db.collection('withdrawalRequests').where('userId', '==', CU.uid).where('status', '==', 'pending').get().catch(() => ({ size: 0 }));
       el.innerHTML = `<div class="dashph" style="margin-bottom:20px">💰 الأرباح والإيرادات</div>
   <div class="srow" style="margin-bottom:20px">
     <div class="sc acc"><div class="scic">💵</div><div class="scval" style="font-size:1.5rem">${gross.toFixed(0)}</div><div class="sclbl">إجمالي الإيرادات (ج.م)</div></div>
-    <div class="sc"><div class="scic">💸</div><div class="scval" style="font-size:1.5rem">${fees.toFixed(0)}</div><div class="sclbl">عمولة المنصة ${platformCommission}%</div></div>
+    <div class="sc"><div class="scic">💸</div><div class="scval" style="font-size:1.5rem">${tutorFees.toFixed(0)}</div><div class="sclbl">عمولة المعلم ${platformTutorCommission}%</div></div>
     <div class="sc amb"><div class="scic">🏦</div><div class="scval" style="font-size:1.5rem">${net.toFixed(0)}</div><div class="sclbl">صافي الأرباح (ج.م)</div></div>
     <div class="sc"><div class="scic">💳</div><div class="scval" style="font-size:1.5rem">${walBalance.toFixed(0)}</div><div class="sclbl">رصيد المحفظة (ج.م)</div></div>
     <div class="sc"><div class="scic">📊</div><div class="scval" style="font-size:1.5rem">${comp.length}</div><div class="sclbl">جلسات مكتملة</div></div>
   </div>
+  <div style="margin-bottom:14px;font-size:.82rem;color:var(--muted)">إجمالي عمولة الطالب المحسوبة: ${studentFees.toFixed(2)} ج.م — وإجمالي عمولة المعلم: ${tutorFees.toFixed(2)} ج.م</div>
   ${wdSnap.size ? `<div style="background:var(--amber3);border:1px solid rgba(245,158,11,.3);border-radius:var(--r);padding:12px 16px;margin-bottom:16px;font-size:.82rem">⏳ لديك <strong>${wdSnap.size}</strong> طلب سحب قيد المراجعة</div>` : ''}
   <div style="margin-bottom:20px;display:flex;gap:10px;flex-wrap:wrap">
     <button class="btn btn-p" onclick="dNav('withdraw')" style="background:linear-gradient(135deg,#065f46,#10b981)">
       🏦 طلب سحب الأرباح
     </button>
+    <button class="btn btn-gh" onclick="go('wallet')">💳 شحن المحفظة</button>
   </div>
-  <div class="dsec" style="overflow-x:auto">${comp.length ? `<table class="dtbl"><thead><tr><th>الطالب</th><th>التاريخ والوقت</th><th>المدة</th><th>الإيراد</th><th>العمولة</th><th>الصافي</th><th>الحالة</th></tr></thead><tbody>
+  <div class="dsec" style="overflow-x:auto">${comp.length ? `<table class="dtbl"><thead><tr><th>الطالب</th><th>التاريخ والوقت</th><th>المدة</th><th>الإيراد</th><th>عمولة المعلم</th><th>الصافي</th><th>الحالة</th></tr></thead><tbody>
     ${comp.map(b => `<tr>
       <td><strong>${b.studentName || '—'}</strong></td>
       <td style="white-space:nowrap;font-size:.8rem">${b.date || '—'}<br><span style="color:var(--muted);font-size:.72rem">${b.timeLbl || b.time || ''}</span></td>
       <td style="font-size:.8rem">${b.actualDuration ? b.actualDuration + 'د' : (b.duration || 60) + 'د'}</td>
       <td style="color:var(--teal);font-weight:800">${b.price || 0} ج.م</td>
-      <td style="color:var(--muted);font-size:.82rem">${(b.fee || 0).toFixed(2)} ج.م</td>
-      <td style="color:var(--green);font-weight:800">${((b.price || 0) - (b.fee || 0)).toFixed(2)} ج.م</td>
+      <td style="color:var(--muted);font-size:.82rem">${Number(b.tutorFee || 0).toFixed(2)} ج.م</td>
+      <td style="color:var(--green);font-weight:800">${((b.price || 0) - Number(b.tutorFee || 0)).toFixed(2)} ج.م</td>
       <td>${b.adminConfirmed ? '<span class="pill pc">✓ مُحوَّل</span>' : '<span class="pill pp">⏳ بانتظار الإدارة</span>'}</td>
     </tr>`).join('')}</tbody></table>` : '<div style="text-align:center;padding:32px;color:var(--muted)">لا توجد جلسات مكتملة بعد</div>'}</div>`;
     }
@@ -1913,7 +1951,7 @@ function isSignedIn() {
       document.getElementById('editBio').value = p.bio || '';
       document.getElementById('editCnt').value = p.country || '';
       document.getElementById('editLng').value = p.lang || 'عربي';
-      document.getElementById('editPh').value = p.photo || '';
+      selectedEditPhoto = p.photo || '';
       prvEditAv();
       if (isTutor) {
         document.getElementById('editTutSec').classList.remove('hidden');
@@ -1928,8 +1966,9 @@ function isSignedIn() {
     }
 
     function prvEditAv() {
-      const url = document.getElementById('editPh').value;
+      const url = selectedEditPhoto || CP?.photo || '';
       const el = document.getElementById('editAvPr');
+      if (!el) return;
       if (url) { el.innerHTML = `<img src="${url}">`; }
       else { el.textContent = CP?.name?.[0] || 'أ'; el.style.background = CP?.color || 'var(--amber)'; }
     }
@@ -1970,7 +2009,7 @@ function isSignedIn() {
         bio: document.getElementById('editBio').value,
         country: document.getElementById('editCnt').value,
         lang: document.getElementById('editLng').value,
-        photo: selectedEditPhoto || document.getElementById('editPh').value
+        photo: selectedEditPhoto || CP?.photo || ''
       };
       if (isTutor) {
         data.category = document.getElementById('editCat').value;
@@ -2070,8 +2109,6 @@ function isSignedIn() {
       try {
         const cred = await auth.createUserWithEmailAndPassword(email, pass);
         const uid = cred.user.uid;
-        CU = cred.user || auth.currentUser || CU;
-        sessionStorage.setItem('skillak_post_auth_route', 'dashboard');
         const isTutor = regRole === 'tutor' || regRole === 'both';
 
         // Collect availability
@@ -2119,7 +2156,6 @@ function isSignedIn() {
           allT.sort((a, b) => (b.rating || 0) - (a.rating || 0));
         }
         await loadT(); // Also reload from Firestore
-        sessionStorage.removeItem('skillak_post_auth_route');
         go('dashboard');
       } catch (e) {
         const errMap = {
@@ -2285,7 +2321,7 @@ function isSignedIn() {
                   <div style="display:flex;gap:4px;flex-wrap:wrap">
                     ${b.status === 'pending' ? `<span class="pill pp">⏳ بانتظار موافقة المعلم</span>` : ''}
                     ${b.status === 'confirmed' ? `<button class="btn btn-xs" style="background:var(--teal);color:#fff" onclick="adminCompleteBk('${b.id}','${b.tutorId}',${b.price || 0},${b.fee || 0})">🏁 تأكيد الانتهاء</button>` : ''}
-                    ${b.status === 'completed' && !b.adminConfirmed ? `<button class="btn btn-s btn-xs" onclick="adminPayTutor('${b.id}','${b.tutorId}',${b.price || 0},${b.fee || 0})">💰 حوّل للمعلم</button><button class="btn btn-o btn-xs" onclick="adminRefundBk('${b.id}','${b.studentId}',${b.total || 0})">↩️ إرجاع للطالب</button>` : ''}
+                    ${b.status === 'completed' && !b.adminConfirmed ? `<button class="btn btn-s btn-xs" onclick="adminPayTutor('${b.id}','${b.tutorId}',${b.price || 0},${b.fee || 0},${b.tutorFee || 0})">💰 حوّل للمعلم</button><button class="btn btn-o btn-xs" onclick="adminRefundBk('${b.id}','${b.studentId}',${b.total || 0})">↩️ إرجاع للطالب</button>` : ''}
                     ${b.status === 'completed' && b.adminConfirmed ? '<span style="color:var(--green);font-size:.75rem;font-weight:700">✓ مُحوَّل</span>' : ''}
                     ${b.status === 'refunded' ? '<span style="color:var(--blue);font-size:.75rem;font-weight:700">↩️ مُسترد</span>' : ''}
                   </div>
@@ -2464,9 +2500,10 @@ function isSignedIn() {
     }
 
     // Admin: transfer earnings to tutor wallet after session
-    async function adminPayTutor(bid, tutorId, price, fee) {
-      const net = price - fee;
-      if (!confirm(`تحويل ${net.toFixed(2)} ج.م (صافي) لمحفظة المعلم بعد خصم العمولة (${fee.toFixed(2)} ج.م)؟`)) return;
+    async function adminPayTutor(bid, tutorId, price, fee, tutorFee = null) {
+      const actualTutorFee = Number.isFinite(Number(tutorFee)) ? Number(tutorFee) : Number(fee || 0);
+      const net = price - actualTutorFee;
+      if (!confirm(`تحويل ${net.toFixed(2)} ج.م (صافي) لمحفظة المعلم بعد خصم عمولة المعلم (${actualTutorFee.toFixed(2)} ج.م)؟`)) return;
       try {
         await db.runTransaction(async tx => {
           const wr = db.collection('wallets').doc(tutorId);
@@ -2477,7 +2514,7 @@ function isSignedIn() {
         });
         await db.collection('transactions').add({
           userId: tutorId, type: 'credit', kind: 'booking', amount: net, currency: 'EGP',
-          description: `أرباح جلسة — معتمدة من الإدارة (${price} - ${fee} عمولة = ${net.toFixed(2)} ج.م)`,
+          description: `أرباح جلسة — معتمدة من الإدارة (${price} - ${actualTutorFee} عمولة معلم = ${net.toFixed(2)} ج.م)`,
           bookingId: bid,
           createdAt: firebase.firestore.FieldValue.serverTimestamp()
         });
@@ -2742,19 +2779,19 @@ function isSignedIn() {
       }
       if (name === 'home') renderFeat();
       if (name === 'dashboard') {
-        if (isSignedIn()) { CU = syncAuthUser(); buildSb(); rdOverview(document.getElementById('dashCon')); }
+        if (CU) { buildSb(); rdOverview(document.getElementById('dashCon')); }
         else openM('loginMod');
       }
       if (name === 'chat') {
-        if (isSignedIn()) { CU = syncAuthUser(); loadChatPage(); }
+        if (CU) loadChatPage();
         else openM('loginMod');
       }
       if (name === 'wallet') {
-        if (isSignedIn()) { CU = syncAuthUser(); loadTxList(); }
+        if (CU) loadTxList();
         else openM('loginMod');
       }
       if (name === 'editProfile') {
-        if (isSignedIn()) { CU = syncAuthUser(); loadEditProf(); }
+        if (CU) loadEditProf();
         else openM('loginMod');
       }
       if (name === 'admin') {
@@ -2826,11 +2863,11 @@ function isSignedIn() {
       if (el) el.classList.add('active');
     }
     function bnChatClick() {
-      if (isSignedIn()) { CU = syncAuthUser(); go('chat'); setBnActive('bnChat'); }
+      if (CU) { go('chat'); setBnActive('bnChat'); }
       else openM('loginMod');
     }
     function bnDashClick() {
-      if (isSignedIn()) { CU = syncAuthUser(); go('dashboard'); setBnActive('bnDash'); }
+      if (CU) { go('dashboard'); setBnActive('bnDash'); }
       else openM('loginMod');
     }
 
@@ -2860,7 +2897,7 @@ function isSignedIn() {
 
     /* ── MOBILE NAV STATE UPDATE ── */
     function updMobNav() {
-      const isLoggedIn = isSignedIn();
+      const isLoggedIn = !!CU;
       ['mobD', 'mobC', 'mobW', 'mobEP'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = isLoggedIn ? 'flex' : 'none';
@@ -2896,375 +2933,108 @@ function isSignedIn() {
     };
   
 
-
 /* ============================================================
    Skillak Pro enhancements
    ============================================================ */
+var platformStudentCommission = 5;
+var platformTutorCommission = 5;
 var platformCommission = 10;
 var supportAdminUid = null;
 var regPhotoData = '';
 var selectedEditPhoto = '';
-
-var currentAdminReport = { type: 'user', uid: '', name: '', isPlatform: false };
-
-const SPECIALTIES = [
-  'برمجة',
-  'تطوير الويب',
-  'تطوير تطبيقات الموبايل',
-  'علوم البيانات',
-  'الذكاء الاصطناعي',
-  'تعلم الآلة',
-  'الأمن السيبراني',
-  'قواعد البيانات',
-  'DevOps والسحابة',
-  'اختبار البرمجيات',
-  'إدارة نظم المعلومات',
-  'تصميم UI/UX',
-  'التصميم الجرافيكي',
-  'موشن جرافيك',
-  'مونتاج',
-  'تصوير فوتوغرافي',
-  'تصميم داخلي',
-  'عمارة',
-  'رياضيات',
-  'فيزياء',
-  'كيمياء',
-  'أحياء',
-  'علوم',
-  'لغة عربية',
-  'لغة إنجليزية',
-  'لغة فرنسية',
-  'لغة ألمانية',
-  'لغة إسبانية',
-  'لغة تركية',
-  'لغة إيطالية',
-  'لغة صينية',
-  'لغة كورية',
-  'القرآن والتجويد',
-  'العلوم الشرعية',
-  'دراسات اجتماعية',
-  'تاريخ',
-  'جغرافيا',
-  'فلسفة',
-  'اقتصاد',
-  'محاسبة',
-  'إدارة أعمال',
-  'إدارة مشاريع',
-  'موارد بشرية',
-  'تسويق رقمي',
-  'إعلانات ممولة',
-  'SEO',
-  'Excel',
-  'Power BI',
-  'تحليل بيانات',
-  'ريادة أعمال',
-  'تجارة إلكترونية',
-  'إلقاء وتقديم',
-  'سيرة ذاتية ومقابلات',
-  'مهارات وظيفية',
-  'برمجة للأطفال',
-  'موسيقى',
-  'عزف على الآلات',
-  'غناء',
-  'رسم وخط عربي',
-  'علوم صحية',
-  'تغذية ولياقة',
-  'تمريض',
-  'طب',
-  'قانون',
-  'اقتصاد منزلي',
-  'تنمية بشرية',
-  'تعليم خاص',
-  'صعوبات تعلم',
-  'مهارات حياتية',
-  'صحافة وإعلام',
-  'كتابة محتوى',
-  'ترجمة',
-  'تصميم أزياء',
-  'خياطة',
-  'حرف يدوية'
-];
-
-const PRICE_RANGES = [
-  { v: '', l: 'الكل' },
-  { v: '100-300', l: '100 - 300 ج.م' },
-  { v: '300-500', l: '300 - 500 ج.م' },
-  { v: '500-700', l: '500 - 700 ج.م' },
-  { v: '700-1000', l: '700 - 1000 ج.م' },
-  { v: '1000-1500', l: '1000 - 1500 ج.م' },
-  { v: '1500-2000', l: '1500 - 2000 ج.م' },
-  { v: '2000+', l: '2000+ ج.م' }
-];
-
-const RATING_RANGES = [
-  { v: '', l: 'الكل' },
-  { v: '1-2', l: '1 - 2 نجوم' },
-  { v: '2-3', l: '2 - 3 نجوم' },
-  { v: '3-4', l: '3 - 4 نجوم' },
-  { v: '4-5', l: '4 - 5 نجوم' }
-];
-
-var cropState = {
-  mode: '',
-  image: null,
-  imageUrl: '',
-  zoom: 1,
-  baseZoom: 1,
-  rotation: 0,
-  offsetX: 0,
-  offsetY: 0,
-  dragging: false,
-  pointerId: null,
-  startX: 0,
-  startY: 0,
-  startOffsetX: 0,
-  startOffsetY: 0,
-  stageSize: 720,
-  animFrame: 0
-};
-
-function safeText(v) {
-  return String(v ?? '').replace(/\s+/g, ' ').trim();
-}
-
-function sanitizeFileName(v) {
-  const name = safeText(v) || 'report';
-  return name.replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-}
-
-function roleLabel(role) {
-  return { learner: 'متعلم', tutor: 'معلم', both: 'متعلم ومعلم', admin: 'مدير' }[role] || (role || '—');
-}
-
-function isTutorRole(role) {
-  return role === 'tutor' || role === 'both' || role === 'admin';
-}
-
-function isLearnerRole(role) {
-  return role === 'learner' || role === 'both';
-}
-
-function populateSelectOptions(selectId, items, selectedValue = '') {
-  const el = document.getElementById(selectId);
-  if (!el) return;
-  const current = selectedValue || el.value || '';
-  el.innerHTML = items.map(it => `<option value="${escapeHTML(it.v)}">${escapeHTML(it.l)}</option>`).join('');
-  if (current && items.some(it => it.v === current)) el.value = current;
-}
-
-function populateSpecialtySelects() {
-  const opts = [{ v: '', l: 'اختر التخصص' }, ...SPECIALTIES.map(v => ({ v, l: v }))];
-  ['r3Cat', 'editCat', 'exCat'].forEach(id => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const keep = el.value;
-    const base = id === 'exCat' ? [{ v: '', l: 'الكل' }, ...SPECIALTIES.map(v => ({ v, l: v }))] : opts;
-    populateSelectOptions(id, base, keep);
-  });
-
-  const ratEl = document.getElementById('exRat');
-  if (ratEl) {
-    const current = ratEl.value;
-    ratEl.innerHTML = RATING_RANGES.map(r => `<option value="${r.v}">${r.l}</option>`).join('');
-    if (current) ratEl.value = current;
-  }
-  const prEl = document.getElementById('exPrc');
-  if (prEl) {
-    const current = prEl.value;
-    prEl.innerHTML = PRICE_RANGES.map(r => `<option value="${r.v}">${r.l}</option>`).join('');
-    if (current) prEl.value = current;
-  }
-}
+var cropperInstance = null;
+var cropMode = '';
+var cropSource = '';
 
 async function resolveSupportAdminUid() {
   if (supportAdminUid) return supportAdminUid;
   try {
     const snap = await db.collection('users').where('role', '==', 'admin').limit(1).get();
-    if (!snap.empty) supportAdminUid = snap.docs[0].id;
+    if (!snap.empty) {
+      supportAdminUid = snap.docs[0].id;
+    }
   } catch (e) { }
   return supportAdminUid;
 }
 
-function syncWalletPanelVisibility() {
-  const role = CP?.role || '';
-  const topup = document.getElementById('topupCard');
-  const withdraw = document.getElementById('withdrawCard');
-  const topupBtn = document.querySelector('button[onclick="go(\'wallet\')"]');
-  const canTopup = role === 'learner' || role === 'both' || role === 'admin' || !role;
-  const canWithdraw = isTutorRole(role);
-  if (topup) topup.style.display = canTopup ? '' : 'none';
-  if (withdraw) withdraw.style.display = canWithdraw ? 'block' : 'none';
-}
-
-function sessionStartMs(b) {
-  if (!b) return 0;
-  if (Number.isFinite(Number(b.startAtMs))) return Number(b.startAtMs);
-  if (Number.isFinite(Number(b.sessionStartMs))) return Number(b.sessionStartMs);
-  if (b.sessionStartISO) {
-    const ms = Date.parse(b.sessionStartISO);
-    if (!Number.isNaN(ms)) return ms;
-  }
-  if (!b.date || !b.time) return 0;
-  const ms = Date.parse(`${b.date}T${b.time}:00`);
-  return Number.isNaN(ms) ? 0 : ms;
-}
-
-function sessionEndMs(b) {
-  if (!b) return 0;
-  if (Number.isFinite(Number(b.endAtMs))) return Number(b.endAtMs);
-  if (Number.isFinite(Number(b.sessionEndMs))) return Number(b.sessionEndMs);
-  if (b.sessionEndISO) {
-    const ms = Date.parse(b.sessionEndISO);
-    if (!Number.isNaN(ms)) return ms;
-  }
-  const start = sessionStartMs(b);
-  const dur = Number(b.duration || 60) || 60;
-  return start ? start + (dur * 60000) : 0;
-}
-
-function canJoinSession(b) {
-  if (!b || !['confirmed', 'completed'].includes(b.status)) return false;
-  const endMs = sessionEndMs(b);
-  if (!endMs) return b.status === 'confirmed';
-  return Date.now() <= endMs;
-}
-
-function calcNetSpendFromTransactions(txs) {
-  const bookingDebits = txs.filter(t => t.type === 'debit' && String(t.kind || '').toLowerCase() === 'booking')
-    .reduce((s, t) => s + Number(t.amount || 0), 0);
-  const bookingCredits = txs.filter(t => t.type === 'credit' && String(t.kind || '').toLowerCase() === 'booking')
-    .reduce((s, t) => s + Number(t.amount || 0), 0);
-  return Math.max(0, bookingDebits - bookingCredits);
-}
-
-function scheduleCropRedraw() {
-  if (cropState.animFrame) cancelAnimationFrame(cropState.animFrame);
-  cropState.animFrame = requestAnimationFrame(() => {
-    cropState.animFrame = 0;
-    renderCropStage();
-    renderCropPreview();
+try {
+  db.collection('settings').doc('platform').onSnapshot(s => {
+    const d = s.exists ? s.data() : null;
+    const student = Number(d?.studentCommissionRate ?? d?.studentCommission ?? d?.commissionRate ?? 5);
+    const tutor = Number(d?.tutorCommissionRate ?? d?.tutorCommission ?? d?.tutorFeeRate ?? 5);
+    platformStudentCommission = Number.isFinite(student) ? student : 5;
+    platformTutorCommission = Number.isFinite(tutor) ? tutor : 5;
+    platformCommission = +(platformStudentCommission + platformTutorCommission).toFixed(2);
+    const studentEl = document.getElementById('studentCommissionRateView');
+    if (studentEl) studentEl.textContent = `${platformStudentCommission}%`;
+    const tutorEl = document.getElementById('tutorCommissionRateView');
+    if (tutorEl) tutorEl.textContent = `${platformTutorCommission}%`;
+    const inpStudent = document.getElementById('studentCommissionRateInput');
+    if (inpStudent && document.activeElement !== inpStudent) inpStudent.value = platformStudentCommission;
+    const inpTutor = document.getElementById('tutorCommissionRateInput');
+    if (inpTutor && document.activeElement !== inpTutor) inpTutor.value = platformTutorCommission;
+    const feeLbl = document.getElementById('bkFeeLabel');
+    if (feeLbl) feeLbl.textContent = `📊 رسوم الخدمة (طالب ${platformStudentCommission}% + معلم ${platformTutorCommission}%)`;
   });
-}
+} catch (e) {}
 
-function getCropCanvasPair() {
-  return {
-    stage: document.getElementById('cropCanvas'),
-    preview: document.getElementById('cropPreviewCanvas'),
-    modeLbl: document.getElementById('cropModeLbl'),
-    zoom: document.getElementById('cropZoomRange')
-  };
-}
-
-function attachCropEvents() {
-  const { stage } = getCropCanvasPair();
-  if (!stage || stage.dataset.bound === '1') return;
-  stage.dataset.bound = '1';
-
-  const pointerDown = (ev) => {
-    if (!cropState.image) return;
-    stage.setPointerCapture?.(ev.pointerId);
-    cropState.dragging = true;
-    cropState.pointerId = ev.pointerId;
-    cropState.startX = ev.clientX;
-    cropState.startY = ev.clientY;
-    cropState.startOffsetX = cropState.offsetX;
-    cropState.startOffsetY = cropState.offsetY;
-  };
-  const pointerMove = (ev) => {
-    if (!cropState.dragging || cropState.pointerId !== ev.pointerId) return;
-    cropState.offsetX = cropState.startOffsetX + (ev.clientX - cropState.startX);
-    cropState.offsetY = cropState.startOffsetY + (ev.clientY - cropState.startY);
-    scheduleCropRedraw();
-  };
-  const pointerUp = (ev) => {
-    if (cropState.pointerId !== ev.pointerId) return;
-    cropState.dragging = false;
-    cropState.pointerId = null;
-  };
-  stage.addEventListener('pointerdown', pointerDown);
-  window.addEventListener('pointermove', pointerMove);
-  window.addEventListener('pointerup', pointerUp);
-  window.addEventListener('pointercancel', pointerUp);
-  window.addEventListener('resize', () => {
-    if (document.getElementById('cropMod') && !document.getElementById('cropMod').classList.contains('hidden')) {
-      cropState.stageSize = stage.clientWidth || 720;
-      scheduleCropRedraw();
+function syncCropPreview(mode, dataUrl) {
+  const img = dataUrl ? `<img src="${dataUrl}" alt="preview">` : '';
+  const previewEl = document.getElementById('cropPreviewImg');
+  if (previewEl && dataUrl) previewEl.src = dataUrl;
+  if (mode === 'reg') {
+    regPhotoData = dataUrl || '';
+    const box = document.getElementById('r2PhotoPreview');
+    if (box) {
+      box.classList.toggle('hidden', !dataUrl);
+      box.innerHTML = `<div class="photo-preview-frame">${img}</div>`;
     }
-  });
-}
-
-function drawCropToCanvas(canvas, size) {
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const target = size || 720;
-  canvas.width = target;
-  canvas.height = target;
-  ctx.clearRect(0, 0, target, target);
-  ctx.fillStyle = '#0f172a';
-  ctx.fillRect(0, 0, target, target);
-
-  if (!cropState.image) {
-    ctx.fillStyle = 'rgba(255,255,255,.65)';
-    ctx.font = `${Math.max(14, target * 0.03)}px Cairo, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.fillText('لا توجد صورة', target / 2, target / 2);
-    return;
+  } else if (mode === 'edit') {
+    selectedEditPhoto = dataUrl || '';
+    const box = document.getElementById('editPhotoPreview');
+    if (box) {
+      box.classList.toggle('hidden', !dataUrl);
+      box.innerHTML = `<div class="photo-preview-frame">${img}</div>`;
+    }
+    prvEditAv();
   }
-
-  const img = cropState.image;
-  const stageSize = cropState.stageSize || 720;
-  const stageRatio = target / stageSize;
-  const baseZoom = Math.max(target / img.width, target / img.height);
-  const zoom = baseZoom * cropState.zoom;
-  const ox = cropState.offsetX * stageRatio;
-  const oy = cropState.offsetY * stageRatio;
-
-  ctx.save();
-  ctx.translate(target / 2 + ox, target / 2 + oy);
-  ctx.rotate((cropState.rotation || 0) * Math.PI / 180);
-  ctx.scale(zoom, zoom);
-  ctx.drawImage(img, -img.width / 2, -img.height / 2);
-  ctx.restore();
 }
 
-function renderCropStage() {
-  const { stage, modeLbl } = getCropCanvasPair();
-  if (!stage) return;
-  drawCropToCanvas(stage, cropState.stageSize || 720);
-  if (modeLbl) modeLbl.textContent = cropState.mode === 'reg' ? 'صورة التسجيل' : 'صورة الملف';
-}
-
-function renderCropPreview() {
-  const { preview } = getCropCanvasPair();
-  if (!preview) return;
-  drawCropToCanvas(preview, 320);
-}
-
-async function openCropModal(dataUrl, mode) {
-  cropState.mode = mode;
-  cropState.imageUrl = dataUrl;
-  cropState.zoom = 1;
-  cropState.rotation = 0;
-  cropState.offsetX = 0;
-  cropState.offsetY = 0;
-  cropState.dragging = false;
-  cropState.pointerId = null;
-
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.onload = () => {
-    cropState.image = img;
-    const { stage, zoom } = getCropCanvasPair();
-    cropState.stageSize = stage?.clientWidth || stage?.width || 720;
-    const base = Math.max(cropState.stageSize / img.width, cropState.stageSize / img.height);
-    cropState.baseZoom = base;
-    if (zoom) zoom.value = '1';
-    openM('cropMod');
-    attachCropEvents();
-    scheduleCropRedraw();
-  };
-  img.onerror = () => showT('تعذر تحميل الصورة', 'err');
-  img.src = dataUrl;
+function openCropModal(dataUrl, mode) {
+  cropMode = mode;
+  cropSource = dataUrl;
+  const image = document.getElementById('cropImage');
+  const zoom = document.getElementById('cropZoomRange');
+  const preview = document.getElementById('cropPreviewImg');
+  if (!image) return;
+  image.src = dataUrl;
+  if (preview) preview.src = dataUrl;
+  if (zoom) zoom.value = 1;
+  openM('cropMod');
+  setTimeout(() => {
+    try {
+      if (cropperInstance) cropperInstance.destroy();
+      cropperInstance = new Cropper(image, {
+        aspectRatio: 1,
+        viewMode: 2,
+        dragMode: 'move',
+        autoCropArea: 1,
+        responsive: true,
+        background: false,
+        scalable: true,
+        zoomable: true,
+        movable: true,
+        cropBoxResizable: true,
+        ready() {
+          try { cropperInstance.zoomTo(1); } catch (e) {}
+          updateCropLivePreview();
+        },
+        crop() { updateCropLivePreview(); }
+      });
+    } catch (e) {
+      showT('تعذر فتح أداة قص الصورة', 'err');
+    }
+  }, 80);
 }
 
 function handleImageInput(input, mode) {
@@ -3275,194 +3045,64 @@ function handleImageInput(input, mode) {
   reader.readAsDataURL(file);
 }
 
+function updateCropLivePreview() {
+  if (!cropperInstance) return;
+  try {
+    const preview = cropperInstance.getCroppedCanvas({ width: 420, height: 420, imageSmoothingQuality: 'high' });
+    const img = document.getElementById('cropPreviewImg');
+    if (img && preview) img.src = preview.toDataURL('image/jpeg', 0.9);
+  } catch (e) {}
+}
 function rotateCrop(deg) {
-  cropState.rotation = (cropState.rotation + deg) % 360;
-  scheduleCropRedraw();
+  if (cropperInstance) {
+    cropperInstance.rotate(deg);
+    setTimeout(updateCropLivePreview, 120);
+  }
 }
-
 function resetCrop() {
-  cropState.zoom = 1;
-  cropState.rotation = 0;
-  cropState.offsetX = 0;
-  cropState.offsetY = 0;
-  const { zoom } = getCropCanvasPair();
-  if (zoom) zoom.value = '1';
-  scheduleCropRedraw();
+  if (cropperInstance) {
+    cropperInstance.reset();
+    setTimeout(updateCropLivePreview, 120);
+  }
 }
-
 function setCropZoom(value) {
+  if (!cropperInstance) return;
   const v = Number(value);
   if (!Number.isFinite(v)) return;
-  const { zoom } = getCropCanvasPair();
-  if (!cropState.image) return;
-  if (Math.abs(v) < 0.5) {
-    cropState.zoom = Math.min(3, Math.max(0.8, cropState.zoom + v));
-    if (zoom) zoom.value = String(cropState.zoom);
+  const isStep = Math.abs(v) < 0.5;
+  if (isStep) {
+    cropperInstance.zoom(v);
+    const range = document.getElementById('cropZoomRange');
+    if (range) {
+      const current = Number(range.value || 1);
+      const next = Math.min(3, Math.max(0.8, current + v));
+      range.value = next.toFixed(2);
+    }
   } else {
-    cropState.zoom = Math.min(3, Math.max(0.8, v));
-    if (zoom) zoom.value = String(cropState.zoom);
+    cropperInstance.zoomTo(v);
   }
-  scheduleCropRedraw();
-}
-
-function syncCropPreview(mode, dataUrl) {
-  const img = dataUrl ? `<img src="${dataUrl}" alt="preview">` : '';
-  if (mode === 'reg') {
-    regPhotoData = dataUrl || '';
-    const box = document.getElementById('r2PhotoPreview');
-    if (box) {
-      box.classList.toggle('hidden', !dataUrl);
-      box.innerHTML = img || '';
-    }
-  } else if (mode === 'edit') {
-    selectedEditPhoto = dataUrl || '';
-    const box = document.getElementById('editPhotoPreview');
-    if (box) {
-      box.classList.toggle('hidden', !dataUrl);
-      box.innerHTML = img || '';
-    }
-    prvEditAv();
-  }
+  setTimeout(updateCropLivePreview, 80);
 }
 
 function applyCrop() {
-  if (!cropState.image) return;
-  const out = document.createElement('canvas');
-  drawCropToCanvas(out, 900);
-  const dataUrl = out.toDataURL('image/jpeg', 0.92);
-  syncCropPreview(cropState.mode, dataUrl);
-  if (cropState.mode === 'edit') {
-    const editPh = document.getElementById('editPh');
-    if (editPh) editPh.value = dataUrl;
-  } else if (cropState.mode === 'reg') {
+  if (!cropperInstance) return;
+  const canvas = cropperInstance.getCroppedCanvas({ width: 1200, height: 1200, imageSmoothingQuality: 'high' });
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.94);
+  syncCropPreview(cropMode, dataUrl);
+  if (cropMode === 'edit') {
+    const ed = document.getElementById('editImg');
+    if (ed) ed.dataset.cropped = dataUrl;
+  } else if (cropMode === 'reg') {
     const r2 = document.getElementById('r2Img');
     if (r2) r2.dataset.cropped = dataUrl;
   }
   closeM('cropMod');
 }
 
-async function deleteCascadeDocs(uid) {
-  const deletes = [];
-  const pushQueryDelete = async (q) => {
-    const snap = await q.get().catch(() => ({ docs: [] }));
-    if (!snap.docs?.length) return;
-    let batch = db.batch();
-    let count = 0;
-    for (const d of snap.docs) {
-      batch.delete(d.ref);
-      count++;
-      if (count >= 400) {
-        deletes.push(batch.commit());
-        batch = db.batch();
-        count = 0;
-      }
-    }
-    if (count) deletes.push(batch.commit());
-  };
-
-  await pushQueryDelete(db.collection('bookings').where('studentId', '==', uid));
-  await pushQueryDelete(db.collection('bookings').where('tutorId', '==', uid));
-  await pushQueryDelete(db.collection('transactions').where('userId', '==', uid));
-  await pushQueryDelete(db.collection('withdrawalRequests').where('userId', '==', uid));
-  await pushQueryDelete(db.collection('paymentRequests').where('userId', '==', uid));
-  await pushQueryDelete(db.collection('reviews').where('studentId', '==', uid));
-  await pushQueryDelete(db.collection('reviews').where('tutorId', '==', uid));
-  await pushQueryDelete(db.collection('messages').where('senderId', '==', uid));
-  await pushQueryDelete(db.collection('messages').where('receiverId', '==', uid));
-  await pushQueryDelete(db.collection('sessions').where('studentId', '==', uid));
-  await pushQueryDelete(db.collection('sessions').where('tutorId', '==', uid));
-  await pushQueryDelete(db.collection('availability').where('tutorId', '==', uid));
-  await Promise.allSettled(deletes);
-  await db.collection('wallets').doc(uid).delete().catch(() => {});
-  await db.collection('users').doc(uid).delete().catch(() => {});
-}
-
-async function deleteMyAccount() {
-  if (!CU?.uid) return;
-  if (!confirm('هل تريد حذف حسابك وكل بياناتك نهائياً؟')) return;
-  try {
-    await deleteCascadeDocs(CU.uid);
-    try {
-      await auth.currentUser?.delete();
-    } catch (e) { }
-    await auth.signOut().catch(() => {});
-    showT('تم حذف الحساب والبيانات المرتبطة به', 'suc');
-    location.reload();
-  } catch (e) {
-    showT('تعذر حذف الحساب: ' + e.message, 'err');
-  }
-}
-
-function syncWalletPanelVisibility() {
-  const role = CP?.role || '';
-  const topup = document.getElementById('topupCard');
-  const withdraw = document.getElementById('withdrawCard');
-  const canTopup = role === 'learner' || role === 'both' || role === 'admin' || !role;
-  const canWithdraw = isTutorRole(role);
-  if (topup) topup.style.display = canTopup ? '' : 'none';
-  if (withdraw) withdraw.style.display = canWithdraw ? 'block' : 'none';
-}
-
-function calcNetSpendFromTransactions(txs) {
-  const bookingDebits = txs.filter(t => t.type === 'debit' && String(t.kind || '').toLowerCase() === 'booking')
-    .reduce((s, t) => s + Number(t.amount || 0), 0);
-  const bookingCredits = txs.filter(t => t.type === 'credit' && String(t.kind || '').toLowerCase() === 'booking')
-    .reduce((s, t) => s + Number(t.amount || 0), 0);
-  return Math.max(0, bookingDebits - bookingCredits);
-}
-
-function sessionStartMs(b) {
-  if (!b) return 0;
-  if (Number.isFinite(Number(b.startAtMs))) return Number(b.startAtMs);
-  if (Number.isFinite(Number(b.sessionStartMs))) return Number(b.sessionStartMs);
-  if (b.sessionStartISO) {
-    const ms = Date.parse(b.sessionStartISO);
-    if (!Number.isNaN(ms)) return ms;
-  }
-  if (!b.date || !b.time) return 0;
-  const ms = Date.parse(`${b.date}T${b.time}:00`);
-  return Number.isNaN(ms) ? 0 : ms;
-}
-
-function sessionEndMs(b) {
-  if (!b) return 0;
-  if (Number.isFinite(Number(b.endAtMs))) return Number(b.endAtMs);
-  if (Number.isFinite(Number(b.sessionEndMs))) return Number(b.sessionEndMs);
-  if (b.sessionEndISO) {
-    const ms = Date.parse(b.sessionEndISO);
-    if (!Number.isNaN(ms)) return ms;
-  }
-  const start = sessionStartMs(b);
-  const dur = Number(b.duration || 60) || 60;
-  return start ? start + (dur * 60000) : 0;
-}
-
-function canJoinSession(b) {
-  if (!b || !['confirmed', 'completed'].includes(b.status)) return false;
-  const endMs = sessionEndMs(b);
-  if (!endMs) return b.status === 'confirmed';
-  return Date.now() <= endMs;
-}
-
-try {
-  db.collection('settings').doc('platform').onSnapshot(s => {
-    const d = s.exists ? s.data() : null;
-    const v = Number(d?.commissionRate ?? d?.commission ?? 10);
-    platformCommission = Number.isFinite(v) ? v : 10;
-    const el = document.getElementById('commissionRateView');
-    if (el) el.textContent = `${platformCommission}%`;
-    const inp = document.getElementById('commissionRateInput');
-    if (inp && document.activeElement !== inp) inp.value = platformCommission;
-    const feeLbl = document.getElementById('bkFeeLabel');
-    if (feeLbl) feeLbl.textContent = `📊 رسوم الخدمة (${platformCommission}%)`;
-  });
-} catch (e) {}
-
 // Guards for signed-in users
-
 const _skillakOpenM = window.openM;
 window.openM = function(id) {
-  if (id === 'regMod' && isSignedIn()) {
+  if (id === 'regMod' && CU) {
     showT('لديك حساب بالفعل. استخدم لوحة التحكم أو عدّل ملفك الشخصي.', 'err');
     return;
   }
@@ -3471,7 +3111,7 @@ window.openM = function(id) {
 
 const _skillakOpenRegAs = window.openRegAs;
 window.openRegAs = function(role) {
-  if (isSignedIn()) {
+  if (CU) {
     showT('لديك حساب بالفعل. لا يمكن فتح التسجيل مرة أخرى.', 'err');
     return;
   }
@@ -3486,7 +3126,7 @@ window.go = function(name) {
 
 const _skillakPrvEditAv = window.prvEditAv;
 window.prvEditAv = function() {
-  const url = selectedEditPhoto || document.getElementById('editPh')?.value || '';
+  const url = selectedEditPhoto || CP?.photo || '';
   const el = document.getElementById('editAvPr');
   if (!el) return;
   if (url) { el.innerHTML = `<img src="${url}">`; }
@@ -3496,8 +3136,61 @@ window.prvEditAv = function() {
 const _skillakLoadEditProf = window.loadEditProf;
 window.loadEditProf = async function() {
   await _skillakLoadEditProf();
-  selectedEditPhoto = document.getElementById('editPh')?.value || '';
+  selectedEditPhoto = CP?.photo || '';
   syncCropPreview('edit', selectedEditPhoto || '');
+};
+
+// Google login with profile completion
+window.doGoogleLogin = async function() {
+  const provider = new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  const btns = Array.from(document.querySelectorAll('[onclick="doGoogleLogin()"]'));
+  btns.forEach(b => { b.disabled = true; });
+  try {
+    const result = await auth.signInWithPopup(provider);
+    const user = result.user;
+    const ref = db.collection('users').doc(user.uid);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      const name = user.displayName || (user.email ? user.email.split('@')[0] : 'مستخدم');
+      const profile = {
+        uid: user.uid,
+        email: user.email || '',
+        name,
+        phone: '',
+        role: 'learner',
+        bio: '',
+        photo: user.photoURL || '',
+        skills: [],
+        price: 0,
+        lang: 'عربي',
+        country: '',
+        category: '',
+        rating: 0,
+        totalReviews: 0,
+        totalSessions: 0,
+        isApproved: true,
+        provider: 'google',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      };
+      await ref.set(profile, { merge: true });
+      await db.collection('wallets').doc(user.uid).set({ balance: 0, userId: user.uid }, { merge: true });
+      CP = profile;
+      await loadWal();
+      updNavU();
+      showT('تم تسجيل الدخول بحساب Google. أكمل بياناتك من صفحة تعديل الملف الشخصي.', 'suc');
+      closeM('loginMod');
+      go('editProfile');
+      return;
+    }
+    closeM('loginMod');
+    showT('مرحباً بك مجدداً 👋', 'suc');
+    go('dashboard');
+  } catch (err) {
+    showT('تعذر تسجيل الدخول عبر Google: ' + (err?.message || err), 'err');
+  } finally {
+    btns.forEach(b => { b.disabled = false; });
+  }
 };
 
 // Support chat pin + admin thread
@@ -3593,83 +3286,104 @@ window.adTab = async function(tab, el) {
   if (tab === 'users') setTimeout(enhanceAdminUserRows, 30);
   if (tab === 'commission') {
     const con = document.getElementById('adCon');
-    const current = Number.isFinite(platformCommission) ? platformCommission : 10;
+    const student = Number.isFinite(platformStudentCommission) ? platformStudentCommission : 5;
+    const tutor = Number.isFinite(platformTutorCommission) ? platformTutorCommission : 5;
+    const total = +(student + tutor).toFixed(2);
     con.innerHTML = `
       <div class="ad-panel">
         <div class="ad-panel-hd">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
             <div>
               <span class="sl" style="margin-bottom:6px">العمولة</span>
-              <h3 style="margin:0;font-family:'Fraunces',serif">التحكم في نسبة المنصة</h3>
+              <h3 style="margin:0;font-family:'Fraunces',serif">التحكم في عمولة الطالب والمعلم</h3>
             </div>
-            <span class="pill pc">الحالية: <strong id="commissionRateView">${current}%</strong></span>
+            <span class="pill pc">الإجمالي: <strong id="commissionRateView">${total}%</strong></span>
           </div>
         </div>
         <div class="cb">
           <div class="ad-grid" style="margin-bottom:14px">
-            <div class="ad-card"><strong>نسبة الخصم</strong><div class="num">${current}%</div><div style="font-size:.8rem;color:var(--muted)">تُطبق على الحجوزات الجديدة فقط</div></div>
-            <div class="ad-card"><strong>أرباح المنصة</strong><div class="num">تلقائي</div><div style="font-size:.8rem;color:var(--muted)">تتحدث حسب النسبة المحفوظة</div></div>
+            <div class="ad-card"><strong>عمولة الطالب</strong><div class="num" id="studentCommissionRateView">${student}%</div><div style="font-size:.8rem;color:var(--muted)">تُضاف على الحجز عند الدفع</div></div>
+            <div class="ad-card"><strong>عمولة المعلم</strong><div class="num" id="tutorCommissionRateView">${tutor}%</div><div style="font-size:.8rem;color:var(--muted)">تُخصم من أرباح الجلسة</div></div>
+            <div class="ad-card"><strong>أرباح المنصة</strong><div class="num">تلقائي</div><div style="font-size:.8rem;color:var(--muted)">عمولة الطالب + عمولة المعلم</div></div>
           </div>
           <div class="fr" style="align-items:end">
             <div class="fg" style="margin-bottom:0">
-              <label>نسبة العمولة %</label>
-              <input type="number" id="commissionRateInput" min="0" max="100" step="0.5" value="${current}" />
+              <label>عمولة الطالب %</label>
+              <input type="number" id="studentCommissionRateInput" min="0" max="100" step="0.5" value="${student}" />
+            </div>
+            <div class="fg" style="margin-bottom:0">
+              <label>عمولة المعلم %</label>
+              <input type="number" id="tutorCommissionRateInput" min="0" max="100" step="0.5" value="${tutor}" />
             </div>
             <button class="btn btn-p" onclick="saveCommissionRate()">💾 حفظ العمولة</button>
           </div>
-          <div id="commissionMsg" class="fh" style="margin-top:10px">يمكنك رفع أو خفض النسبة في أي وقت.</div>
+          <div id="commissionMsg" class="fh" style="margin-top:10px">التحديث يتم تلقائياً في باقي المنصة بعد الحفظ.</div>
         </div>
       </div>`;
   }
   if (tab === 'reports') {
     const con = document.getElementById('adCon');
-    const usersSnap = await db.collection('users').get().catch(() => ({ docs: [] }));
-    const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-    const firstId = '__platform__';
+    const usersSnap = await db.collection('users').orderBy('createdAt', 'desc').get().catch(() => ({ docs: [] }));
+    const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const firstId = users[0]?.id || '';
     con.innerHTML = `
       <div class="ad-panel">
         <div class="ad-panel-hd">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
             <div>
               <span class="sl" style="margin-bottom:6px">التقارير</span>
-              <h3 style="margin:0;font-family:'Fraunces',serif">تقرير كامل للمنصة أو لمستخدم محدد</h3>
+              <h3 style="margin:0;font-family:'Fraunces',serif">تقرير كامل للمستخدمين والمعاملات</h3>
             </div>
-            <button class="btn btn-o btn-sm" onclick="downloadAdminReportPdf()">⬇️ تحميل PDF</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn btn-o btn-sm" onclick="buildPlatformReport()">📚 تقرير المنصة</button>
+              <button class="btn btn-o btn-sm" onclick="downloadAdminReportPdf()">⬇️ تحميل PDF</button>
+            </div>
           </div>
         </div>
         <div class="cb">
           <div class="fg">
-            <label>اختر التقرير</label>
+            <label>اختر المستخدم</label>
             <select id="reportUserSel" onchange="buildAdminReport(this.value)">
-              <option value="__platform__" selected>المنصة كاملة</option>
-              ${users.map(u => `<option value="${u.id}">${u.name || u.email || u.id}</option>`).join('')}
+              ${users.map(u => `<option value="${u.id}" ${u.id === firstId ? 'selected' : ''}>${u.name || u.email || u.id}</option>`).join('')}
             </select>
           </div>
           <div id="adminReportCard" class="ad-report"></div>
         </div>
       </div>`;
-    buildAdminReport(firstId);
+    if (firstId) buildAdminReport(firstId);
   }
   return out;
 };
 
 window.saveCommissionRate = async function() {
-  const inp = document.getElementById('commissionRateInput');
+  const sInp = document.getElementById('studentCommissionRateInput');
+  const tInp = document.getElementById('tutorCommissionRateInput');
   const msg = document.getElementById('commissionMsg');
-  const v = Number(inp?.value);
-  if (!Number.isFinite(v) || v < 0 || v > 100) {
-    if (msg) msg.textContent = 'أدخل نسبة صحيحة بين 0 و 100.';
-    showT('أدخل نسبة صحيحة بين 0 و100', 'err');
+  const student = Number(sInp?.value);
+  const tutor = Number(tInp?.value);
+  if (!Number.isFinite(student) || student < 0 || student > 100 || !Number.isFinite(tutor) || tutor < 0 || tutor > 100) {
+    if (msg) msg.textContent = 'أدخل نسبًا صحيحة بين 0 و 100.';
+    showT('أدخل نسبًا صحيحة بين 0 و100', 'err');
     return;
   }
   try {
-    await db.collection('settings').doc('platform').set({ commissionRate: v, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
-    platformCommission = v;
-    if (msg) msg.textContent = `تم حفظ العمولة بنجاح: ${v}%`;
-    showT(`تم تحديث العمولة إلى ${v}%`, 'suc');
+    await db.collection('settings').doc('platform').set({
+      studentCommissionRate: student,
+      tutorCommissionRate: tutor,
+      commissionRate: student + tutor,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    platformStudentCommission = student;
+    platformTutorCommission = tutor;
+    platformCommission = +(student + tutor).toFixed(2);
+    if (msg) msg.textContent = `تم حفظ العمولة بنجاح: الطالب ${student}% والمعلم ${tutor}%`;
+    showT(`تم تحديث العمولة: الطالب ${student}% والمعلم ${tutor}%`, 'suc');
     const rateEl = document.getElementById('commissionRateView');
-    if (rateEl) rateEl.textContent = `${v}%`;
+    if (rateEl) rateEl.textContent = `${(student + tutor).toFixed(2)}%`;
+    const sEl = document.getElementById('studentCommissionRateView');
+    if (sEl) sEl.textContent = `${student}%`;
+    const tEl = document.getElementById('tutorCommissionRateView');
+    if (tEl) tEl.textContent = `${tutor}%`;
   } catch (e) {
     showT('تعذر حفظ العمولة: ' + e.message, 'err');
   }
@@ -3678,10 +3392,6 @@ window.saveCommissionRate = async function() {
 async function buildAdminReport(uid) {
   const card = document.getElementById('adminReportCard');
   if (!card || !uid) return;
-  if (uid === '__platform__') {
-    await buildPlatformReport();
-    return;
-  }
   card.innerHTML = '<div style="text-align:center;padding:24px"><div class="spin" style="margin:0 auto 10px"></div><div style="color:var(--muted)">جاري تجهيز التقرير...</div></div>';
   try {
     const [userSnap, b1, b2, txSnap, wdSnap, paySnap] = await Promise.all([
@@ -3702,7 +3412,7 @@ async function buildAdminReport(uid) {
     const cancelled = bookings.filter(b => ['cancelled', 'rejected'].includes(b.status)).length;
     const refunded = bookings.filter(b => b.status === 'refunded').length;
     const spent = txs.filter(t => t.type === 'debit').reduce((s, t) => s + Number(t.amount || 0), 0);
-    const earned = txs.filter(t => t.type === 'credit').reduce((s, t) => s + Number(t.amount || 0), 0);
+    const earned = bookings.filter(b => b.status === 'completed').reduce((s, b) => s + bookingPlatformProfit(b), 0);
     const wBalSnap = await db.collection('wallets').doc(uid).get().catch(() => null);
     const balance = Number(wBalSnap?.data()?.balance || 0);
     const role = { learner: 'متعلم', tutor: 'معلم', both: 'متعلم ومعلم', admin: 'مدير' }[u.role] || (u.role || '—');
@@ -3714,7 +3424,8 @@ async function buildAdminReport(uid) {
         <div class="rm"><span>الدور</span><strong>${role}</strong></div>
         <div class="rm"><span>الرصيد الحالي</span><strong>${balance.toFixed(2)} ج.م</strong></div>
         <div class="rm"><span>آخر معاملة</span><strong>${lastTx}</strong></div>
-        <div class="rm"><span>العمولة الحالية</span><strong>${platformCommission}%</strong></div>
+        <div class="rm"><span>عمولة الطالب</span><strong>${platformStudentCommission}%</strong></div>
+        <div class="rm"><span>عمولة المعلم</span><strong>${platformTutorCommission}%</strong></div>
       </div>
       <div class="ad-grid" style="margin-bottom:14px">
         <div class="ad-card"><strong>الجلسات</strong><div class="num">${bookings.length}</div><div style="font-size:.8rem;color:var(--muted)">مكتملة: ${completed}</div></div>
@@ -3726,7 +3437,7 @@ async function buildAdminReport(uid) {
         <div class="rm"><span>إجمالي الشحن</span><strong>${payments.reduce((s, x) => s + Number(x.amount || 0), 0).toFixed(2)} ج.م</strong></div>
         <div class="rm"><span>إجمالي السحب</span><strong>${withdrawals.reduce((s, x) => s + Number(x.amount || 0), 0).toFixed(2)} ج.م</strong></div>
         <div class="rm"><span>إجمالي الإنفاق</span><strong>${spent.toFixed(2)} ج.م</strong></div>
-        <div class="rm"><span>إجمالي الأرباح</span><strong>${earned.toFixed(2)} ج.م</strong></div>
+        <div class="rm"><span>إجمالي أرباح المنصة</span><strong>${earned.toFixed(2)} ج.م</strong></div>
       </div>
       <div class="card" style="border-radius:18px;overflow:hidden;margin-bottom:14px">
         <div class="ch"><div class="ct">سجل الجلسات</div><div class="pill pc">${bookings.length} سجل</div></div>
@@ -3746,6 +3457,62 @@ async function buildAdminReport(uid) {
       </div>`;
   } catch (e) {
     card.innerHTML = `<div style="padding:20px;color:var(--red)">تعذر تحميل التقرير: ${e.message}</div>`;
+  }
+}
+
+
+async function buildPlatformReport() {
+  const card = document.getElementById('adminReportCard');
+  if (!card) return;
+  card.innerHTML = '<div style="text-align:center;padding:24px"><div class="spin" style="margin:0 auto 10px"></div><div style="color:var(--muted)">جاري تجهيز تقرير المنصة...</div></div>';
+  try {
+    const [usersSnap, bookingsSnap, txSnap, paySnap, wdSnap, walletSnaps] = await Promise.all([
+      db.collection('users').get().catch(() => ({ docs: [] })),
+      db.collection('bookings').get().catch(() => ({ docs: [] })),
+      db.collection('transactions').get().catch(() => ({ docs: [] })),
+      db.collection('paymentRequests').get().catch(() => ({ docs: [] })),
+      db.collection('withdrawalRequests').get().catch(() => ({ docs: [] })),
+      db.collection('wallets').get().catch(() => ({ docs: [] }))
+    ]);
+    const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const bookings = bookingsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const completed = bookings.filter(b => b.status === 'completed');
+    const platformRevenue = completed.reduce((s, b) => s + bookingPlatformProfit(b), 0);
+    const totalSpend = txSnap.docs.filter(t => t.data().type === 'debit').reduce((s, t) => s + Number(t.data().amount || 0), 0);
+    const walletMap = Object.fromEntries(walletSnaps.docs.map(d => [d.id, Number(d.data()?.balance || 0)]));
+    const userRows = users.map(u => {
+      const bs = bookings.filter(b => b.studentId === u.id || b.tutorId === u.id);
+      const bal = Number(walletMap[u.id] || 0);
+      const role = { learner: 'متعلم', tutor: 'معلم', both: 'الاثنان', admin: 'مدير' }[u.role] || (u.role || '—');
+      return `<tr>
+        <td><strong>${u.name || '—'}</strong><div style="font-size:.72rem;color:var(--muted);overflow-wrap:anywhere">${u.email || ''}</div></td>
+        <td>${role}</td>
+        <td>${bs.length}</td>
+        <td>${bal.toFixed(2)} ج.م</td>
+      </tr>`;
+    }).join('');
+    card.innerHTML = `
+      <div class="report-meta" style="margin-bottom:14px">
+        <div class="rm"><span>إجمالي المستخدمين</span><strong>${users.length}</strong></div>
+        <div class="rm"><span>إجمالي الجلسات</span><strong>${bookings.length}</strong></div>
+        <div class="rm"><span>الجلسات المكتملة</span><strong>${completed.length}</strong></div>
+        <div class="rm"><span>أرباح المنصة</span><strong>${platformRevenue.toFixed(2)} ج.م</strong></div>
+        <div class="rm"><span>إجمالي الإنفاق</span><strong>${totalSpend.toFixed(2)} ج.م</strong></div>
+        <div class="rm"><span>إجمالي الشحن</span><strong>${paySnap.docs.reduce((s, d) => s + Number(d.data().amount || 0), 0).toFixed(2)} ج.م</strong></div>
+        <div class="rm"><span>إجمالي السحب</span><strong>${wdSnap.docs.reduce((s, d) => s + Number(d.data().amount || 0), 0).toFixed(2)} ج.م</strong></div>
+      </div>
+      <div class="card" style="border-radius:18px;overflow:hidden;margin-top:12px">
+        <div class="ch"><div class="ct">كل المستخدمين</div><div class="pill pc">${users.length} مستخدم</div></div>
+        <div class="cb" style="padding:0;overflow:auto;max-height:520px">
+          <table class="dtbl" style="min-width:820px">
+            <thead><tr><th>المستخدم</th><th>الدور</th><th>عدد الجلسات</th><th>الرصيد</th></tr></thead>
+            <tbody>${userRows}</tbody>
+          </table>
+        </div>
+      </div>`;
+    card.dataset.platform = '1';
+  } catch (e) {
+    card.innerHTML = `<div style="padding:20px;color:var(--red)">تعذر تحميل تقرير المنصة: ${e.message}</div>`;
   }
 }
 
@@ -3771,7 +3538,9 @@ window.downloadAdminReportPdf = async function() {
       pdf.addImage(imgData, 'PNG', 5, position, imgWidth, imgHeight);
       heightLeft -= (pageHeight - 10);
     }
-    pdf.save(`Skillak-report-${new Date().toISOString().slice(0,10)}.pdf`);
+    const isPlatform = card.dataset.platform === '1';
+    const owner = (isPlatform ? 'Skillak-Platform' : (document.getElementById('reportUserSel')?.selectedOptions?.[0]?.textContent || 'Skillak')).replace(/[\\/:*?"<>|]+/g, '-');
+    pdf.save(`${owner}-report-${new Date().toISOString().slice(0,10)}.pdf`);
   } catch (e) {
     showT('تعذر إنشاء ملف PDF: ' + e.message, 'err');
   }
@@ -3786,838 +3555,18 @@ window.doReg = async function() {
 
 const _skillakSavePrf = window.savePrf;
 window.savePrf = async function() {
-  selectedEditPhoto = selectedEditPhoto || document.getElementById('editPh')?.value || '';
+  selectedEditPhoto = selectedEditPhoto || document.getElementById('editImg')?.dataset?.cropped || CP?.photo || '';
   return _skillakSavePrf();
 };
 
 // Image picker listeners
 window.addEventListener('DOMContentLoaded', () => {
+  populateSpecialties();
   const r2 = document.getElementById('r2Img');
   if (r2) r2.addEventListener('change', () => handleImageInput(r2, 'reg'));
   const ed = document.getElementById('editImg');
   if (ed) ed.addEventListener('change', () => handleImageInput(ed, 'edit'));
-  const saveEdit = document.getElementById('editPh');
-  if (saveEdit) saveEdit.addEventListener('input', () => { selectedEditPhoto = saveEdit.value.trim(); prvEditAv(); });
   const feeLbl = document.getElementById('bkFeeLabel');
-  if (feeLbl) feeLbl.textContent = `📊 رسوم الخدمة (${platformCommission}%)`;
+  if (feeLbl) feeLbl.textContent = `📊 رسوم الخدمة (طالب ${platformStudentCommission}% + معلم ${platformTutorCommission}%)`;
 });
 
-
-
-/* ============================================================
-   Skillak v4 overrides
-   ============================================================ */
-(function () {
-  const PRICE_BANDS = [
-    [100, 300],
-    [300, 500],
-    [500, 700],
-    [700, 1000],
-    [1000, 1500],
-    [1500, 2000]
-  ];
-
-  function parsePriceBand(v) {
-    if (!v) return [0, Infinity];
-    if (String(v).endsWith('+')) return [Number(String(v).replace('+', '')) || 0, Infinity];
-    const [a, b] = String(v).split('-').map(n => Number(n));
-    return [Number.isFinite(a) ? a : 0, Number.isFinite(b) ? b : Infinity];
-  }
-
-  function parseRatingBand(v) {
-    if (!v) return [0, 5];
-    const [a, b] = String(v).split('-').map(n => Number(n));
-    return [Number.isFinite(a) ? a : 0, Number.isFinite(b) ? b : 5];
-  }
-
-  function netSpendForUserTransactions(txs) {
-    return calcNetSpendFromTransactions(txs);
-  }
-
-  function initDynamicSelects() {
-    populateSpecialtySelects();
-    const exP = document.getElementById('exPrc');
-    const exR = document.getElementById('exRat');
-    if (exP && !Array.from(exP.options).some(o => o.value === '100-300')) populateSpecialtySelects();
-    if (document.getElementById('reportUserSel')) {
-      const sel = document.getElementById('reportUserSel');
-      if (!Array.from(sel.options).some(o => o.value === '__platform__')) {
-        sel.insertAdjacentHTML('afterbegin', `<option value="__platform__">المنصة كاملة</option>`);
-      }
-    }
-    syncWalletPanelVisibility();
-  }
-
-  window.addEventListener('DOMContentLoaded', initDynamicSelects);
-
-  renderExplore = function () {
-    const q = safeText(document.getElementById('exSrch')?.value || '').toLowerCase();
-    const cat = document.getElementById('exCat')?.value || '';
-    const priceBand = document.getElementById('exPrc')?.value || '';
-    const ratingBand = document.getElementById('exRat')?.value || '';
-    const lng = document.getElementById('exLng')?.value || '';
-    const srt = document.getElementById('exSort')?.value || 'rating';
-
-    const [minP, maxP] = parsePriceBand(priceBand);
-    const [minR, maxR] = parseRatingBand(ratingBand);
-
-    let list = allT.filter(t => {
-      const matchesSearch = !q
-        || t.name?.toLowerCase().includes(q)
-        || (t.skills || []).some(s => String(s).toLowerCase().includes(q))
-        || t.category?.toLowerCase().includes(q)
-        || t.bio?.toLowerCase().includes(q);
-
-      const rating = Number(t.rating || 0);
-      const price = Number(t.price || 0);
-      const okRating = !ratingBand || (rating >= minR && (ratingBand === '4-5' ? rating <= maxR : rating < maxR || (ratingBand === '1-2' && rating < 2.01)));
-      const okPrice = !priceBand || (price >= minP && price <= maxP);
-      return matchesSearch && (!cat || t.category === cat) && okRating && okPrice && (!lng || t.lang === lng);
-    });
-
-    if (srt === 'sessions') list = [...list].sort((a, b) => (b.totalSessions || 0) - (a.totalSessions || 0));
-    else if (srt === 'price_asc') list = [...list].sort((a, b) => (a.price || 0) - (b.price || 0));
-    else if (srt === 'price_desc') list = [...list].sort((a, b) => (b.price || 0) - (a.price || 0));
-
-    const el = document.getElementById('exploreGrid');
-    const cnt = document.getElementById('exCnt');
-    if (cnt) cnt.textContent = `عرض ${list.length} من ${allT.length} معلم`;
-    if (el) el.innerHTML = list.length ? list.map(tcHTML).join('') : `<div class="empty"><div class="emptyic">🔍</div><p style="font-weight:700;font-size:1rem;margin-bottom:8px">لم يتم العثور على نتائج</p><p>جرّب تغيير كلمة البحث أو الفلاتر</p></div>`;
-  };
-
-  async function bookingDatesFromSelection() {
-    const startMs = Date.parse(`${selDate}T${selTime}:00`);
-    if (Number.isNaN(startMs)) return { startMs: 0, endMs: 0 };
-    const dur = 60;
-    return { startMs, endMs: startMs + dur * 60000 };
-  }
-
-  confirmBk = async function () {
-    if (!isSignedIn() || !curT) return;
-    const t = curT;
-    const noteEl = document.getElementById('bkNote');
-    const btn = document.getElementById('bkBtn');
-    if (!selDate) { showT('اختر تاريخ الجلسة أولاً', 'err'); return; }
-    if (!selTime) { showT('اختر وقت الجلسة أولاً', 'err'); return; }
-    if (!canBookTarget(t.id)) { showT('لا يمكنك الحجز مع نفسك أو كمعلّم فقط', 'err'); closeM('bkMod'); return; }
-    if (btn) { btn.textContent = 'جاري الحجز...'; btn.disabled = true; }
-    const fee = +(t.price * (platformCommission / 100)).toFixed(2), tot = t.price + fee;
-    try {
-      await db.runTransaction(async tx => {
-        const r = db.collection('wallets').doc(CU.uid);
-        const s = await tx.get(r);
-        const b = s.exists ? (s.data().balance || 0) : 0;
-        if (b < tot) throw new Error('رصيد غير كافٍ');
-        tx.set(r, { balance: b - tot, userId: CU.uid }, { merge: true });
-      });
-      const times = await bookingDatesFromSelection();
-      const bRef = await db.collection('bookings').add({
-        studentId: CU.uid, studentName: CP?.name || CU.email,
-        studentPhone: CP?.phone || '',
-        tutorId: t.id, tutorName: t.name,
-        date: selDate, time: selTime, timeLbl: timeLbl(selTime), duration: 60,
-        startAtMs: times.startMs, endAtMs: times.endMs,
-        sessionStartISO: times.startMs ? new Date(times.startMs).toISOString() : '',
-        sessionEndISO: times.endMs ? new Date(times.endMs).toISOString() : '',
-        price: t.price, fee, total: tot,
-        note: noteEl?.value || '',
-        status: 'pending',
-        reviewed: false, paymentStatus: 'held',
-        adminConfirmed: false,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-      });
-      await db.collection('transactions').add({
-        userId: CU.uid, type: 'debit', kind: 'booking', amount: tot,
-        description: `حجز جلسة مع ${t.name} — بتاريخ ${selDate} ${timeLbl(selTime)}`,
-        bookingId: bRef.id, status: 'held',
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-      });
-      const threadId = [CU.uid, t.id].sort().join('_');
-      await db.collection('messages').add({
-        threadId, senderId: CU.uid, senderName: CP?.name || '—', senderPhoto: CP?.photo || '',
-        receiverId: t.id, receiverName: t.name, receiverPhoto: t.photo || '',
-        text: `📅 طلب حجز جلسة بتاريخ ${selDate} الساعة ${timeLbl(selTime)}.${noteEl?.value ? '\nملاحظة: ' + noteEl.value : ''}\n⏳ يُرجى الموافقة أو الرفض من لوحة التحكم.`,
-        read: false, isBookingNotif: true, bookingId: bRef.id,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-      }).catch(() => { });
-      walBal -= tot;
-      const nw = document.getElementById('nwAmt');
-      if (nw) nw.textContent = walBal.toFixed(2) + ' ج.م';
-      closeM('bkMod');
-      showT('⏳ تم تقديم طلب الحجز — في انتظار موافقة المعلم', 'suc');
-      allContacts[t.id] = { uid: t.id, name: t.name, photo: t.photo || '', color: t.color || '', fgColor: t.fgColor || '', emoji: t.emoji || t.name?.[0] || '؟' };
-      setTimeout(() => { dashTab = 'sessions'; go('dashboard'); }, 1400);
-    } catch (e) {
-      showT('خطأ: ' + e.message, 'err');
-    } finally {
-      if (btn) { btn.textContent = 'تأكيد الدفع والحجز'; btn.disabled = false; }
-    }
-  };
-
-  async function startSessionMedia() {
-    if (!navigator.mediaDevices?.getUserMedia) throw new Error('المتصفح لا يدعم الكاميرا');
-    const constraints = { video: { facingMode: { ideal: sessionFacingMode || 'user' } }, audio: true };
-    try {
-      locSt = await navigator.mediaDevices.getUserMedia(constraints);
-    } catch (e) {
-      locSt = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-    }
-    document.getElementById('locVid').srcObject = locSt;
-    micOn = true;
-    camOn = true;
-    updCtrl();
-  }
-
-  enterSession = async function (bookingId) {
-    const bS = await db.collection('bookings').doc(bookingId).get();
-    if (!bS.exists) { showT('لم يتم العثور على الجلسة', 'err'); return; }
-    const bk = bS.data();
-    if (!['confirmed', 'completed'].includes(bk.status)) { showT('الجلسة غير متاحة حالياً', 'err'); return; }
-    if (!canJoinSession(bk)) { showT('انتهى وقت الجلسة، لا يمكن الدخول الآن', 'err'); return; }
-
-    const isTutor = bk.tutorId === CU.uid;
-    curSesBid = bookingId; curSesBk = bk; sesSec = 0; unreadSes = 0;
-    if (sesTInt) clearInterval(sesTInt);
-    if (sesChatL) sesChatL();
-    document.getElementById('sesTitle').textContent = `جلسة مع ${isTutor ? bk.studentName : bk.tutorName}`;
-    document.getElementById('mainNav').style.display = 'none';
-    document.getElementById('waitOv').classList.remove('hidden');
-    document.getElementById('sesDot').style.background = 'var(--amber)';
-    document.getElementById('sesTxt').textContent = 'جاري الاتصال...';
-    document.getElementById('sesTimer').textContent = '00:00:00';
-    go('session');
-
-    try {
-      await startSessionMedia();
-    } catch (e) {
-      showT('⚠️ تعذّر الوصول للكاميرا/الميكروفون: ' + e.message, 'err');
-      locSt = null;
-    }
-
-    pc = new RTCPeerConnection(RTC);
-    if (locSt) locSt.getTracks().forEach(t => pc.addTrack(t, locSt));
-
-    pc.ontrack = e => {
-      document.getElementById('remVid').srcObject = e.streams[0];
-      document.getElementById('waitOv').classList.add('hidden');
-      document.getElementById('sesDot').style.background = 'var(--green)';
-      document.getElementById('sesTxt').textContent = 'متصل';
-      if (!sesTInt) {
-        sesTInt = setInterval(() => {
-          sesSec++;
-          const h = Math.floor(sesSec / 3600), m = Math.floor((sesSec % 3600) / 60), s = sesSec % 60;
-          document.getElementById('sesTimer').textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-        }, 1000);
-      }
-    };
-    pc.oniceconnectionstatechange = () => {
-      if (['failed', 'disconnected'].includes(pc.iceConnectionState)) {
-        document.getElementById('sesDot').style.background = 'var(--red)';
-        document.getElementById('sesTxt').textContent = 'انقطع الاتصال...';
-        document.getElementById('waitOv').classList.remove('hidden');
-      }
-    };
-
-    const sesRef = db.collection('sessions').doc(bookingId);
-
-    if (isTutor) {
-      pc.onicecandidate = async e => { if (e.candidate) await sesRef.collection('tCand').add(e.candidate.toJSON()); };
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      await sesRef.set({ offer: { type: offer.type, sdp: offer.sdp }, tutorId: CU.uid, status: 'active', startedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
-      sesRef.onSnapshot(async snap => {
-        const d = snap.data();
-        if (d?.answer && !pc.currentRemoteDescription) {
-          try { await pc.setRemoteDescription(new RTCSessionDescription(d.answer)); } catch (e) { }
-        }
-      });
-      sesRef.collection('sCand').onSnapshot(snap => {
-        snap.docChanges().forEach(async c => {
-          if (c.type === 'added') { try { await pc.addIceCandidate(new RTCIceCandidate(c.doc.data())); } catch (e) { } }
-        });
-      });
-    } else {
-      pc.onicecandidate = async e => { if (e.candidate) await sesRef.collection('sCand').add(e.candidate.toJSON()); };
-      const doAns = async of => {
-        if (pc.currentRemoteDescription) return;
-        try {
-          await pc.setRemoteDescription(new RTCSessionDescription(of));
-          const ans = await pc.createAnswer();
-          await pc.setLocalDescription(ans);
-          await sesRef.update({ answer: { type: ans.type, sdp: ans.sdp }, studentId: CU.uid });
-        } catch (e) { console.error('answer:', e); }
-      };
-      const sn = await sesRef.get();
-      if (sn.exists && sn.data()?.offer) await doAns(sn.data().offer);
-      else sesRef.onSnapshot(async sn => { const d = sn.data(); if (d?.offer && !pc.currentRemoteDescription) await doAns(d.offer); });
-      sesRef.collection('tCand').onSnapshot(snap => {
-        snap.docChanges().forEach(async c => {
-          if (c.type === 'added') { try { await pc.addIceCandidate(new RTCIceCandidate(c.doc.data())); } catch (e) { } }
-        });
-      });
-    }
-    loadSesChat(bookingId);
-  };
-
-  loadSesChat = function (bid) {
-    if (sesChatL) sesChatL();
-    sesChatL = db.collection('sessions').doc(bid).collection('chat').orderBy('createdAt', 'asc').onSnapshot(snap => {
-      const el = document.getElementById('sesMsgs'); if (!el) return;
-      el.innerHTML = snap.docs.map(d => {
-        const m = d.data(), mine = m.senderId === CU?.uid;
-        const t = m.createdAt?.toDate ? m.createdAt.toDate().toLocaleTimeString('ar', { hour: '2-digit', minute: '2-digit' }) : '';
-        return `<div style="display:flex;flex-direction:column;align-items:${mine ? 'flex-end' : 'flex-start'}">
-        <div class="sesmb ${mine ? 'mine' : 'theirs'}">${escapeHTML(m.text || '')}<div class="sesmeta">${t}</div></div>
-      </div>`;
-      }).join('');
-      el.scrollTop = el.scrollHeight;
-      const canTalk = !!curSesBk && canJoinSession(curSesBk);
-      const inp = document.getElementById('sesInp');
-      if (inp) inp.disabled = !canTalk;
-      const btn = document.querySelector('#sesChatPnl .btn.btn-p.btn-sm');
-      if (btn) btn.disabled = !canTalk;
-      if (document.getElementById('sesChatPnl').classList.contains('hidden')) {
-        unreadSes++;
-        if (unreadSes > 0) document.getElementById('chatTogBtn').classList.add('unread');
-      } else {
-        unreadSes = 0; document.getElementById('chatTogBtn').classList.remove('unread');
-      }
-    });
-  };
-
-  sendSesMsg = async function () {
-    const inp = document.getElementById('sesInp'), text = inp.value.trim();
-    if (!text || !curSesBid || !curSesBk || !canJoinSession(curSesBk)) {
-      showT('الشات يعمل فقط أثناء الجلسة المؤكدة', 'err');
-      return;
-    }
-    inp.value = '';
-    try {
-      await db.collection('sessions').doc(curSesBid).collection('chat').add({
-        senderId: CU.uid,
-        senderName: CP?.name || 'أنا',
-        text,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-      });
-      await mirrorSessionToChat(curSesBk, text, CP?.name || 'أنا', CP?.photo || '');
-    }
-    catch (e) { }
-  };
-
-  toggleSesChat = function () {
-    const p = document.getElementById('sesChatPnl');
-    p.classList.toggle('hidden');
-    if (!p.classList.contains('hidden')) { unreadSes = 0; document.getElementById('chatTogBtn').classList.remove('unread'); }
-  };
-
-  let sessionFacingMode = 'user';
-
-  togMic = function () {
-    if (!locSt) return;
-    micOn = !micOn;
-    locSt.getAudioTracks().forEach(t => t.enabled = micOn);
-    updCtrl();
-  };
-
-  togCam = function () {
-    if (!locSt) return;
-    camOn = !camOn;
-    locSt.getVideoTracks().forEach(t => t.enabled = camOn);
-    document.getElementById('camOffOv').style.display = camOn ? 'none' : 'flex';
-    updCtrl();
-  };
-
-  switchCameraFacing = async function () {
-    if (!locSt) return;
-    if (!navigator.mediaDevices?.getUserMedia) return;
-    const currentVideo = locSt.getVideoTracks()[0];
-    const currentAudio = locSt.getAudioTracks()[0] || null;
-    const nextFacing = sessionFacingMode === 'user' ? 'environment' : 'user';
-    try {
-      const camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: nextFacing } }, audio: false });
-      const newVideo = camStream.getVideoTracks()[0];
-      if (!newVideo) throw new Error('لا يمكن تبديل الكاميرا');
-      sessionFacingMode = nextFacing;
-      const merged = new MediaStream();
-      if (currentAudio) merged.addTrack(currentAudio);
-      merged.addTrack(newVideo);
-      if (currentVideo) currentVideo.stop();
-      locSt = merged;
-      document.getElementById('locVid').srcObject = locSt;
-      const sender = pc?.getSenders?.().find(s => s.track?.kind === 'video');
-      if (sender) await sender.replaceTrack(newVideo).catch(() => { });
-      updCtrl();
-    } catch (e) {
-      showT('تعذّر تبديل الكاميرا: ' + e.message, 'err');
-    }
-  };
-
-  togScr = async function () {
-    if (!navigator.mediaDevices?.getDisplayMedia) {
-      showT('مشاركة الشاشة غير مدعومة على هذا الجهاز أو المتصفح', 'err');
-      return;
-    }
-    if (scrOn) {
-      if (scrSt) scrSt.getTracks().forEach(t => t.stop());
-      if (locSt) {
-        const ct = locSt.getVideoTracks()[0];
-        if (ct) {
-          const s = pc?.getSenders().find(s => s.track?.kind === 'video');
-          if (s) await s.replaceTrack(ct).catch(() => { });
-          document.getElementById('locVid').srcObject = locSt;
-        }
-      }
-      scrOn = false;
-    } else {
-      try {
-        scrSt = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-        const st = scrSt.getVideoTracks()[0];
-        const s = pc?.getSenders().find(s => s.track?.kind === 'video');
-        if (s) await s.replaceTrack(st).catch(() => { });
-        document.getElementById('locVid').srcObject = scrSt;
-        st.onended = () => { scrOn = true; togScr(); };
-        scrOn = true;
-      } catch (e) {
-        showT('تعذّرت مشاركة الشاشة: ' + e.message, 'err');
-        return;
-      }
-    }
-    updCtrl();
-  };
-
-  updCtrl = function () {
-    const m = document.getElementById('micBtn'); if (m) { m.className = 'cbtn ' + (micOn ? 'on' : 'off'); m.textContent = micOn ? '🎤' : '🔇'; }
-    const c = document.getElementById('camBtn'); if (c) { c.className = 'cbtn ' + (camOn ? 'on' : 'off'); c.textContent = camOn ? '📷' : '📵'; }
-    const s = document.getElementById('scrBtn'); if (s) { s.className = 'cbtn ' + (scrOn ? 'scron' : 'on'); s.textContent = scrOn ? '⏹️' : '🖥️'; }
-  };
-
-  endSession = async function () {
-    const mins = Math.floor(sesSec / 60);
-    const secs = sesSec % 60;
-    const durStr = mins > 0 ? `${mins} دقيقة ${secs > 0 ? 'و' + secs + ' ثانية' : ''}` : `${secs} ثانية`;
-    if (!confirm(`هل تريد إنهاء الجلسة؟\nمدة الجلسة: ${durStr}`)) return;
-    if (sesTInt) clearInterval(sesTInt);
-    if (sesChatL) sesChatL();
-    if (pc) { pc.close(); pc = null; }
-    if (locSt) locSt.getTracks().forEach(t => t.stop());
-    if (scrSt) scrSt.getTracks().forEach(t => t.stop());
-    locSt = null; scrSt = null;
-
-    if (curSesBid) {
-      try {
-        const bS = await db.collection('bookings').doc(curSesBid).get();
-        const bk = bS.data();
-        await db.collection('sessions').doc(curSesBid).update({ status: 'ended', endedAt: firebase.firestore.FieldValue.serverTimestamp() }).catch(() => { });
-        await db.collection('bookings').doc(curSesBid).update({ status: 'completed' }).catch(() => { });
-        curSesBk = null;
-        document.getElementById('mainNav').style.display = '';
-        go('dashboard');
-
-        if (bk.studentId === CU?.uid) {
-          setTimeout(() => {
-            revBid = curSesBid;
-            revTid = bk.tutorId;
-            const ti = document.getElementById('revTutorInfo');
-            if (ti) {
-              const name = bk.tutorName;
-              const bg = ABG[(name?.charCodeAt(0) || 0) % ABG.length] || '#fde68a';
-              ti.innerHTML = `<div style="width:42px;height:42px;border-radius:50%;background:${bg};display:flex;align-items:center;justify-content:center;font-weight:900;font-family:'Fraunces',serif;font-size:1.1rem;flex-shrink:0">${name?.[0] || '؟'}</div><div><div style="font-weight:700;font-size:.9rem">${name || '—'}</div><div style="font-size:.75rem;color:var(--muted)">جلسة مكتملة · ${bk.date} ${bk.time}</div></div>`;
-            }
-            const sub = document.getElementById('revSub');
-            if (sub) sub.textContent = `كيف كانت جلستك مع ${bk.tutorName}?`;
-            setSt(0);
-            const cmt = document.getElementById('revCmt');
-            if (cmt) cmt.value = '';
-            openM('revMod');
-          }, 600);
-        } else {
-          showT('✅ تم إنهاء الجلسة. اعتماد الأرباح يتم بعد موافقة الإدارة.', 'suc');
-        }
-      } catch (e) {
-        console.error('endSession:', e);
-        document.getElementById('mainNav').style.display = '';
-        go('dashboard');
-      }
-    } else {
-      document.getElementById('mainNav').style.display = '';
-      go('dashboard');
-    }
-  };
-
-  rdOverview = async function (el) {
-    const uid = CU.uid, p = CP;
-    const isTutor = isTutorRole(p.role);
-    const [sb, tb] = await Promise.all([
-      db.collection('bookings').where('studentId', '==', uid).get().catch(() => ({ docs: [] })),
-      db.collection('bookings').where('tutorId', '==', uid).get().catch(() => ({ docs: [] }))
-    ]);
-    const studentBookings = sb.docs.map(d => ({ id: d.id, ...d.data() }));
-    const tutorBookings = tb.docs.map(d => ({ id: d.id, ...d.data() }));
-    const compT = tutorBookings.filter(b => b.status === 'completed');
-    const earnings = compT.reduce((s, b) => s + ((b.price || 0) - (b.fee || 0)), 0);
-    const upcoming = isTutor ? tutorBookings.filter(b => ['pending', 'confirmed'].includes(b.status)).length : studentBookings.filter(b => ['pending', 'confirmed'].includes(b.status)).length;
-    const all = [...studentBookings, ...tutorBookings].filter((b, i, a) => a.findIndex(x => x.id === b.id) === i).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)).slice(0, 10);
-
-    el.innerHTML = `
-    <div class="dashphdr">
-      <div><div style="font-size:.72rem;font-weight:800;letter-spacing:.1em;color:var(--amber);margin-bottom:3px">لوحة التحكم</div><div class="dashph">مرحباً، ${p.name?.split(' ')[0] || 'أهلاً'} 👋</div></div>
-      <button class="btn btn-p" onclick="go('explore')">+ احجز جلسة جديدة</button>
-    </div>
-    <div class="srow">
-      <div class="sc acc"><div class="scic">📅</div><div class="scval">${isTutor ? tutorBookings.length : studentBookings.length}</div><div class="sclbl">${isTutor ? 'جلساتي كمعلم' : 'جلساتي كطالب'}</div></div>
-      <div class="sc"><div class="scic">⏰</div><div class="scval">${upcoming}</div><div class="sclbl">${isTutor ? 'جلسات قادمة كمعلم' : 'جلسات قادمة'}</div></div>
-      ${isTutor ? `
-      <div class="sc amb"><div class="scic">💰</div><div class="scval">$${earnings.toFixed(0)}</div><div class="sclbl">صافي أرباحي</div></div>
-      <div class="sc"><div class="scic">⭐</div><div class="scval">${(p.rating || 0).toFixed(1) || '—'}</div><div class="sclbl">تقييمي كمعلم</div></div>
-      ` : `
-      <div class="sc"><div class="scic">💳</div><div class="scval" style="font-size:1.4rem">${walBal.toFixed(0)}<span style="font-size:.7rem;font-weight:600;opacity:.6"> ج.م</span></div><div class="sclbl">رصيد المحفظة</div></div>
-      <div class="sc"><div class="scic">✅</div><div class="scval">${studentBookings.filter(d => d.status === 'completed').length}</div><div class="sclbl">جلسات مكتملة</div></div>
-      `}
-    </div>
-    ${isTutor ? `<div class="dsec" style="margin-bottom:18px"><div class="dsech"><div class="dsect">📊 ملفي كمعلم — ${(p.rating || 0).toFixed(1)} ⭐ · ${p.totalReviews || 0} تقييم</div><button class="btn btn-gh btn-sm" onclick="go('editProfile')">تعديل الملف</button></div><div style="padding:16px;display:flex;gap:18px;flex-wrap:wrap"><div class="expb"><span>💰</span><div><strong>$${p.price || 0}/ساعة</strong><div style="font-size:.7rem;color:var(--muted)">السعر</div></div></div><div class="expb"><span>🏆</span><div><strong>${p.experience || 0} سنة</strong><div style="font-size:.7rem;color:var(--muted)">خبرة</div></div></div><button class="btn btn-o btn-sm" onclick="dNav('availability')">⏰ إدارة الأوقات المتاحة</button></div></div>` : ''}
-    ${upcoming > 0 ? `<div class="dsec" style="margin-bottom:18px;border-color:var(--teal);"><div class="dsech" style="background:var(--teal3)"><div class="dsect" style="color:var(--teal)">${isTutor ? `⏰ جلساتك القادمة كمعلم (${upcoming})` : `⏰ جلساتك القادمة (${upcoming})`}</div><button class="btn btn-p btn-sm" onclick="dNav('sessions')">عرض الكل</button></div>${bkTblHTML(all.filter(b => ['pending', 'confirmed'].includes(b.status) && (isTutor ? b.tutorId === uid : b.studentId === uid)))}</div>` : ''}
-    <div class="dsec"><div class="dsech"><div class="dsect">آخر الجلسات</div><button class="btn btn-gh btn-sm" onclick="dNav('sessions')">عرض الكل</button></div>${bkTblHTML(all)}</div>
-  `;
-  };
-
-  loadTxList = async function () {
-    const el = document.getElementById('txList'); if (!el || !isSignedIn()) return;
-    el.innerHTML = '<div style="padding:28px;text-align:center"><div class="spin" style="margin:0 auto"></div></div>';
-    const ws = await db.collection('wallets').doc(CU.uid).get().catch(() => null);
-    if (ws?.exists) {
-      walBal = ws.data().balance || 0;
-      const wb = document.getElementById('wBal'); if (wb) wb.textContent = walBal.toFixed(2);
-      const navAmt = document.getElementById('nwAmt'); if (navAmt) navAmt.textContent = walBal.toFixed(2) + ' ج.م';
-    }
-
-    const wdBal = document.getElementById('wdBal');
-    if (wdBal) wdBal.textContent = walBal.toFixed(2) + ' ج.م';
-    syncWalletPanelVisibility();
-    const isTutor = isTutorRole(CP?.role);
-    if (isTutor) loadWdHistory();
-
-    const snap = await db.collection('transactions').where('userId', '==', CU.uid).get().catch(() => ({ docs: [] }));
-    const allTx = [...snap.docs].map(d => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-    const visible = allTx.filter(tx => {
-      const kind = String(tx.kind || '').toLowerCase();
-      if (kind) return ['topup', 'withdrawal', 'booking'].includes(kind);
-      const desc = String(tx.description || '').toLowerCase();
-      return /شحن|سحب|withdraw|top.?up|booking|حجز|استرداد|refund|إلغاء/.test(desc);
-    });
-
-    if (!visible.length) {
-      el.innerHTML = '<div class="empty" style="padding:40px"><div class="emptyic">📭</div><p>لا توجد معاملات مالية بعد</p><p style="font-size:.8rem;color:var(--muted);margin-top:6px">ستظهر هنا عمليات الشحن والسحب والحجوزات الخاصة بك</p></div>';
-      return;
-    }
-
-    let totalIn = 0, totalOut = 0;
-    visible.forEach(tx => {
-      const kind = String(tx.kind || '').toLowerCase();
-      if (kind === 'topup' && tx.status === 'approved') totalIn += Number(tx.amount || 0);
-      if (kind === 'withdrawal' && tx.status === 'approved') totalOut += Number(tx.amount || 0);
-    });
-
-    const bookingSnap = await db.collection('transactions').where('userId', '==', CU.uid).get().catch(() => ({ docs: [] }));
-    const netSpend = netSpendForUserTransactions(bookingSnap.docs.map(d => ({ id: d.id, ...d.data() })));
-
-    const ti = document.getElementById('wTotalIn');
-    const to = document.getElementById('wTotalOut');
-    if (ti) ti.textContent = totalIn.toFixed(2) + ' ج.م';
-    if (to) to.textContent = netSpend.toFixed(2) + ' ج.م';
-
-    const statusPill = (status, kind) => {
-      const map = {
-        pending: '<span class="pill pp">⏳ قيد المراجعة</span>',
-        approved: '<span class="pill pc">✅ معتمد</span>',
-        rejected: '<span class="pill pca">❌ مرفوض</span>'
-      };
-      return map[status] || `<span class="pill ${kind === 'topup' ? 'pc' : 'pp'}">${status || '—'}</span>`;
-    };
-
-    el.innerHTML = visible.map(tx => {
-      const kind = String(tx.kind || '').toLowerCase();
-      const isIn = kind === 'topup';
-      const isOut = kind === 'withdrawal';
-      const isBook = kind === 'booking';
-      const dt = tx.createdAt?.toDate ? tx.createdAt.toDate().toLocaleDateString('ar-SA', { year: 'numeric', month: 'short', day: 'numeric' }) : '-';
-      const desc = tx.description || (isIn ? 'شحن محفظة' : isOut ? 'سحب أرباح' : isBook ? 'حجز جلسة' : '-');
-      const amtSign = (isIn || tx.type === 'credit') ? '+' : '-';
-      return `<div class="txitem">
-          <div style="display:flex;align-items:center;gap:12px;min-width:0">
-            <div class="txic ${isIn ? 'cr' : 'db'}" style="font-size:1.1rem">${isIn ? '💰' : isOut ? '💸' : '📅'}</div>
-            <div style="min-width:0">
-              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                <div style="font-weight:700;font-size:.84rem;overflow-wrap:anywhere;word-break:break-word">${desc}</div>
-                ${statusPill(tx.status, kind)}
-              </div>
-              <div style="font-size:.71rem;color:var(--muted);margin-top:2px">${dt}</div>
-            </div>
-          </div>
-          <div class="${isIn ? 'txcr' : 'txdb'}" style="font-weight:900;font-size:.95rem">
-            ${amtSign}${Number(tx.amount || 0).toFixed(2)} ج.م
-          </div>
-        </div>`;
-    }).join('');
-  };
-
-  async function userReportData(uid) {
-    const [userSnap, b1, b2, txSnap, wdSnap, paySnap] = await Promise.all([
-      db.collection('users').doc(uid).get(),
-      db.collection('bookings').where('studentId', '==', uid).get().catch(() => ({ docs: [] })),
-      db.collection('bookings').where('tutorId', '==', uid).get().catch(() => ({ docs: [] })),
-      db.collection('transactions').where('userId', '==', uid).get().catch(() => ({ docs: [] })),
-      db.collection('withdrawalRequests').where('userId', '==', uid).get().catch(() => ({ docs: [] })),
-      db.collection('paymentRequests').where('userId', '==', uid).get().catch(() => ({ docs: [] }))
-    ]);
-    const u = userSnap.exists ? userSnap.data() : {};
-    const bookings = [...(b1.docs || []), ...(b2.docs || [])].map(d => ({ id: d.id, ...d.data() }));
-    const txs = (txSnap.docs || []).map(d => ({ id: d.id, ...d.data() }));
-    const withdrawals = (wdSnap.docs || []).map(d => ({ id: d.id, ...d.data() }));
-    const payments = (paySnap.docs || []).map(d => ({ id: d.id, ...d.data() }));
-    return { u, bookings, txs, withdrawals, payments };
-  }
-
-  buildAdminReport = async function (uid) {
-    const card = document.getElementById('adminReportCard');
-    if (!card || !uid) return;
-    currentAdminReport = { type: uid === '__platform__' ? 'platform' : 'user', uid, name: '', isPlatform: uid === '__platform__' };
-    card.innerHTML = '<div style="text-align:center;padding:24px"><div class="spin" style="margin:0 auto 10px"></div><div style="color:var(--muted)">جاري تجهيز التقرير...</div></div>';
-    try {
-      if (uid === '__platform__') {
-        await buildPlatformReport();
-        return;
-      }
-      const { u, bookings, txs, withdrawals, payments } = await userReportData(uid);
-      const completed = bookings.filter(b => b.status === 'completed').length;
-      const pending = bookings.filter(b => b.status === 'pending').length;
-      const cancelled = bookings.filter(b => ['cancelled', 'rejected'].includes(b.status)).length;
-      const refunded = bookings.filter(b => b.status === 'refunded').length;
-      const balanceSnap = await db.collection('wallets').doc(uid).get().catch(() => null);
-      const balance = Number(balanceSnap?.data()?.balance || 0);
-      const role = roleLabel(u.role);
-      const lastTx = txs[0]?.createdAt?.toDate ? txs[0].createdAt.toDate().toLocaleDateString('ar-EG') : '—';
-      const spent = calcNetSpendFromTransactions(txs);
-      const earned = isTutorRole(u.role) ? bookings.filter(b => b.status === 'completed').reduce((s, b) => s + ((b.price || 0) - (b.fee || 0)), 0) : 0;
-
-      currentAdminReport.name = u.name || u.email || uid;
-      const showFinancials = u.role !== 'tutor';
-      const showEarnings = isTutorRole(u.role);
-
-      card.innerHTML = `
-        <div class="report-meta" style="margin-bottom:14px">
-          <div class="rm"><span>الاسم</span><strong>${u.name || '—'}</strong></div>
-          <div class="rm"><span>البريد</span><strong>${u.email || '—'}</strong></div>
-          <div class="rm"><span>الدور</span><strong>${role}</strong></div>
-          <div class="rm"><span>الرصيد الحالي</span><strong>${balance.toFixed(2)} ج.م</strong></div>
-          <div class="rm"><span>آخر معاملة</span><strong>${lastTx}</strong></div>
-          <div class="rm"><span>العمولة الحالية</span><strong>${platformCommission}%</strong></div>
-        </div>
-        <div class="ad-grid" style="margin-bottom:14px">
-          <div class="ad-card"><strong>الجلسات</strong><div class="num">${bookings.length}</div><div style="font-size:.8rem;color:var(--muted)">مكتملة: ${completed}</div></div>
-          <div class="ad-card"><strong>المعلقة</strong><div class="num">${pending}</div><div style="font-size:.8rem;color:var(--muted)">مرفوضة/ملغاة: ${cancelled}</div></div>
-          <div class="ad-card"><strong>المستردة</strong><div class="num">${refunded}</div><div style="font-size:.8rem;color:var(--muted)">كل العمليات المرتبطة</div></div>
-          <div class="ad-card"><strong>المعاملات</strong><div class="num">${txs.length}</div><div style="font-size:.8rem;color:var(--muted)">إجمالي الشحن/السحب/الحجز</div></div>
-        </div>
-        <div class="report-meta" style="margin-bottom:14px">
-          ${showFinancials ? `<div class="rm"><span>إجمالي الشحن</span><strong>${payments.reduce((s, x) => s + Number(x.amount || 0), 0).toFixed(2)} ج.م</strong></div>` : ''}
-          ${showFinancials ? `<div class="rm"><span>إجمالي السحب</span><strong>${withdrawals.reduce((s, x) => s + Number(x.amount || 0), 0).toFixed(2)} ج.م</strong></div>` : ''}
-          ${showFinancials ? `<div class="rm"><span>إجمالي الإنفاق</span><strong>${spent.toFixed(2)} ج.م</strong></div>` : ''}
-          ${showEarnings ? `<div class="rm"><span>إجمالي الأرباح</span><strong>${earned.toFixed(2)} ج.م</strong></div>` : ''}
-        </div>
-        <div class="card" style="border-radius:18px;overflow:hidden;margin-bottom:14px">
-          <div class="ch"><div class="ct">سجل الجلسات</div><div class="pill pc">${bookings.length} سجل</div></div>
-          <div class="cb" style="padding:0;overflow:auto;max-height:300px">
-            <table class="dtbl" style="min-width:760px"><thead><tr><th>النوع</th><th>التاريخ</th><th>الحالة</th><th>المبلغ</th><th>المعلم/الطالب</th></tr></thead><tbody>
-              ${bookings.map(b => `<tr><td>${b.studentId === uid ? 'حجز كطالب' : 'جلسة كمعلم'}</td><td>${b.date || '—'} ${b.timeLbl || b.time || ''}</td><td><span class="pill ${b.status === 'completed' ? 'pc' : b.status === 'refunded' ? 'pco' : b.status === 'cancelled' ? 'pca' : 'pp'}">${b.status || '—'}</span></td><td>${Number(b.total || b.price || 0).toFixed(2)} ج.م</td><td>${b.studentId === uid ? (b.tutorName || '—') : (b.studentName || '—')}</td></tr>`).join('')}
-            </tbody></table>
-          </div>
-        </div>
-        <div class="card" style="border-radius:18px;overflow:hidden">
-          <div class="ch"><div class="ct">سجل المعاملات</div><div class="pill pp">${txs.length} حركة</div></div>
-          <div class="cb" style="padding:0;overflow:auto;max-height:280px">
-            <table class="dtbl" style="min-width:760px"><thead><tr><th>النوع</th><th>الوصف</th><th>المبلغ</th><th>الحالة</th><th>التاريخ</th></tr></thead><tbody>
-              ${txs.map(t => `<tr><td>${t.kind || t.type || '—'}</td><td>${t.description || '—'}</td><td>${Number(t.amount || 0).toFixed(2)} ج.م</td><td>${t.status || '—'}</td><td>${t.createdAt?.toDate ? t.createdAt.toDate().toLocaleString('ar-EG') : '—'}</td></tr>`).join('')}
-            </tbody></table>
-          </div>
-        </div>`;
-      currentAdminReport.name = u.name || u.email || uid;
-    } catch (e) {
-      card.innerHTML = `<div style="padding:20px;color:var(--red)">تعذر تحميل التقرير: ${e.message}</div>`;
-    }
-  };
-
-  async function buildPlatformReport() {
-    const card = document.getElementById('adminReportCard');
-    if (!card) return;
-    const usersSnap = await db.collection('users').get().catch(() => ({ docs: [] }));
-    const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-    const bookingsSnap = await db.collection('bookings').get().catch(() => ({ docs: [] }));
-    const bookings = bookingsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const txSnap = await db.collection('transactions').get().catch(() => ({ docs: [] }));
-    const txs = txSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const totalUsers = users.length;
-    const tutors = users.filter(u => u.role === 'tutor' || u.role === 'both' || u.role === 'admin').length;
-    const learners = users.filter(u => u.role === 'learner' || u.role === 'both').length;
-    const bothCount = users.filter(u => u.role === 'both').length;
-    const completed = bookings.filter(b => b.status === 'completed').length;
-    const pending = bookings.filter(b => b.status === 'pending').length;
-    const cancelled = bookings.filter(b => ['cancelled', 'rejected'].includes(b.status)).length;
-    const revenue = bookings.filter(b => b.status === 'completed').reduce((s, b) => s + Number(b.fee || 0), 0);
-    const grossSessions = bookings.filter(b => b.status === 'completed').reduce((s, b) => s + Number(b.price || 0), 0);
-    currentAdminReport = { type: 'platform', uid: '__platform__', name: 'المنصة كاملة', isPlatform: true };
-    currentAdminReport.name = 'المنصة كاملة';
-    card.innerHTML = `
-      <div class="report-meta" style="margin-bottom:14px">
-        <div class="rm"><span>اسم التقرير</span><strong>المنصة كاملة</strong></div>
-        <div class="rm"><span>تاريخ الإصدار</span><strong>${new Date().toLocaleDateString('ar-EG')}</strong></div>
-        <div class="rm"><span>العمولة الحالية</span><strong>${platformCommission}%</strong></div>
-        <div class="rm"><span>إجمالي المستخدمين</span><strong>${totalUsers}</strong></div>
-        <div class="rm"><span>إجمالي الجلسات</span><strong>${bookings.length}</strong></div>
-        <div class="rm"><span>إجمالي الحركات</span><strong>${txs.length}</strong></div>
-      </div>
-      <div class="ad-grid" style="margin-bottom:14px">
-        <div class="ad-card"><strong>معلمون</strong><div class="num">${tutors}</div><div style="font-size:.8rem;color:var(--muted)">حسب الأدوار الحالية</div></div>
-        <div class="ad-card"><strong>متعلمون</strong><div class="num">${learners}</div><div style="font-size:.8rem;color:var(--muted)">حسب الأدوار الحالية</div></div>
-        <div class="ad-card"><strong>الاثنان</strong><div class="num">${bothCount}</div><div style="font-size:.8rem;color:var(--muted)">يعمل كمتعلم ومعلم</div></div>
-        <div class="ad-card"><strong>إيراد المنصة</strong><div class="num">${revenue.toFixed(2)}</div><div style="font-size:.8rem;color:var(--muted)">من عمولات الجلسات المكتملة</div></div>
-      </div>
-      <div class="card" style="border-radius:18px;overflow:hidden;margin-bottom:14px">
-        <div class="ch"><div class="ct">المستخدمون جميعاً</div><div class="pill pc">${totalUsers} مستخدم</div></div>
-        <div class="cb" style="padding:0;overflow:auto;max-height:360px">
-          ${users.length ? `<table class="dtbl" style="min-width:980px"><thead><tr><th>الاسم</th><th>البريد</th><th>الدور</th><th>الحالة</th><th>التقييم</th><th>الجلسات</th><th>الرصيد</th></tr></thead><tbody>
-            ${users.map(u => `<tr><td><strong>${u.name || '—'}</strong></td><td>${u.email || '—'}</td><td>${roleLabel(u.role)}</td><td>${u.isApproved === false ? 'قيد المراجعة' : 'معتمد'}</td><td>${u.rating ? Number(u.rating).toFixed(1) + '⭐' : '—'}</td><td>${u.totalSessions || 0}</td><td>${Number(u.walletBalance || 0).toFixed(2)} ج.م</td></tr>`).join('')}
-          </tbody></table>` : `<div style="padding:26px;text-align:center;color:var(--muted)">لا توجد بيانات مستخدمين لعرضها</div>`}
-        </div>
-      </div>`;
-  };
-
-  window.downloadAdminReportPdf = async function () {
-    const card = document.getElementById('adminReportCard');
-    if (!card) return;
-    try {
-      const canvas = await html2canvas(card, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
-      const imgData = canvas.toDataURL('image/png');
-      const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pageWidth - 10;
-      const imgHeight = canvas.height * imgWidth / canvas.width;
-      let heightLeft = imgHeight;
-      let position = 5;
-      pdf.addImage(imgData, 'PNG', 5, position, imgWidth, imgHeight);
-      heightLeft -= (pageHeight - 10);
-      while (heightLeft > 0) {
-        pdf.addPage();
-        position = heightLeft - imgHeight + 5;
-        pdf.addImage(imgData, 'PNG', 5, position, imgWidth, imgHeight);
-        heightLeft -= (pageHeight - 10);
-      }
-      const fname = currentAdminReport.isPlatform
-        ? 'Skillak-platform-report.pdf'
-        : `Skillak-report-${sanitizeFileName(currentAdminReport.name || 'user')}.pdf`;
-      pdf.save(fname);
-    } catch (e) {
-      showT('تعذر إنشاء ملف PDF: ' + e.message, 'err');
-    }
-  };
-
-  delU = async function (uid, btn) {
-    if (!confirm('حذف هذا المستخدم وكل بياناته من المنصة؟')) return;
-    try {
-      await deleteCascadeDocs(uid);
-      btn?.closest('tr')?.remove();
-      showT('تم حذف المستخدم وبياناته المرتبطة', 'suc');
-    } catch (e) {
-      showT('تعذر حذف المستخدم: ' + e.message, 'err');
-    }
-  };
-
-  async function deleteUserAuthIfCurrent(uid) {
-    if (CU?.uid === uid) {
-      try {
-        await auth.currentUser?.delete();
-      } catch (e) { }
-      await auth.signOut().catch(() => {});
-    }
-  }
-
-  window.adTab = async function (tab, el) {
-    const out = await (typeof _skillakAdTab === 'function' ? _skillakAdTab(tab, el) : undefined);
-    if (tab === 'users') setTimeout(enhanceAdminUserRows, 30);
-    if (tab === 'commission') {
-      const con = document.getElementById('adCon');
-      const current = Number.isFinite(platformCommission) ? platformCommission : 10;
-      con.innerHTML = `
-      <div class="ad-panel">
-        <div class="ad-panel-hd">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-            <div>
-              <span class="sl" style="margin-bottom:6px">العمولة</span>
-              <h3 style="margin:0;font-family:'Fraunces',serif">التحكم في نسبة المنصة</h3>
-            </div>
-            <span class="pill pc">الحالية: <strong id="commissionRateView">${current}%</strong></span>
-          </div>
-        </div>
-        <div class="cb">
-          <div class="ad-grid" style="margin-bottom:14px">
-            <div class="ad-card"><strong>نسبة الخصم</strong><div class="num">${current}%</div><div style="font-size:.8rem;color:var(--muted)">تُطبق على الحجوزات الجديدة فقط</div></div>
-            <div class="ad-card"><strong>أرباح المنصة</strong><div class="num">تلقائي</div><div style="font-size:.8rem;color:var(--muted)">تتحدث حسب النسبة المحفوظة</div></div>
-          </div>
-          <div class="fr" style="align-items:end">
-            <div class="fg" style="margin-bottom:0">
-              <label>نسبة العمولة %</label>
-              <input type="number" id="commissionRateInput" min="0" max="100" step="0.5" value="${current}" />
-            </div>
-            <button class="btn btn-p" onclick="saveCommissionRate()">💾 حفظ العمولة</button>
-          </div>
-          <div id="commissionMsg" class="fh" style="margin-top:10px">يمكنك رفع أو خفض النسبة في أي وقت.</div>
-        </div>
-      </div>`;
-    }
-    if (tab === 'reports') {
-      const con = document.getElementById('adCon');
-      const usersSnap = await db.collection('users').orderBy('createdAt', 'desc').get().catch(() => ({ docs: [] }));
-      const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const firstId = '__platform__';
-      con.innerHTML = `
-      <div class="ad-panel">
-        <div class="ad-panel-hd">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-            <div>
-              <span class="sl" style="margin-bottom:6px">التقارير</span>
-              <h3 style="margin:0;font-family:'Fraunces',serif">تقرير شامل للمنصة أو لمستخدم محدد</h3>
-            </div>
-            <button class="btn btn-o btn-sm" onclick="downloadAdminReportPdf()">⬇️ تحميل PDF</button>
-          </div>
-        </div>
-        <div class="cb">
-          <div class="fg">
-            <label>اختر المستخدم</label>
-            <select id="reportUserSel" onchange="buildAdminReport(this.value)">
-              <option value="__platform__" selected>المنصة كاملة</option>
-              ${users.map(u => `<option value="${u.id}">${u.name || u.email || u.id}</option>`).join('')}
-            </select>
-          </div>
-          <div id="adminReportCard" class="ad-report"></div>
-        </div>
-      </div>`;
-      buildAdminReport('__platform__');
-    }
-    return out;
-  };
-
-  window.addEventListener('DOMContentLoaded', () => {
-    initDynamicSelects();
-    syncWalletPanelVisibility();
-    const r2 = document.getElementById('r2Img');
-    if (r2) r2.addEventListener('change', () => handleImageInput(r2, 'reg'));
-    const ed = document.getElementById('editImg');
-    if (ed) ed.addEventListener('change', () => handleImageInput(ed, 'edit'));
-    const saveEdit = document.getElementById('editPh');
-    if (saveEdit) saveEdit.addEventListener('input', () => { selectedEditPhoto = saveEdit.value.trim(); prvEditAv(); });
-  });
-
-})();
